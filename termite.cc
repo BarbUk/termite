@@ -1672,6 +1672,19 @@ static void spawn_callback([[maybe_unused]] VteTerminal *terminal, GPid pid, GEr
     }
 }
 
+static void target_drag_data_received(GtkWidget *,
+                GdkDragContext     *,
+                gint                ,
+                gint                ,
+                GtkSelectionData   *data,
+                guint               ,
+                guint               ,
+                            keybind_info vte_info){
+    VteTerminal *vte =vte_info.vte;   
+    const char* t = reinterpret_cast<const char *>( gtk_selection_data_get_text(data) );
+    vte_terminal_feed_child (vte, t, -1);
+}
+
 int main(int argc, char **argv) {
     GError *error = nullptr;
     const char *const term = "xterm-termite";
@@ -1796,6 +1809,11 @@ int main(int argc, char **argv) {
     gtk_container_add(GTK_CONTAINER(panel_overlay), hbox);
     gtk_container_add(GTK_CONTAINER(hint_overlay), vte_widget);
     gtk_container_add(GTK_CONTAINER(window), panel_overlay);
+    char* entry_text=(char*) "text/plain";
+    GtkTargetEntry drag_entries[]= {{entry_text, 0, 0}};
+    gtk_drag_dest_set(window, GTK_DEST_DEFAULT_ALL, drag_entries , 1, GDK_ACTION_COPY);
+    g_signal_connect(window, "drag-data-received", G_CALLBACK(target_drag_data_received), &info);
+    
 
     if (!hold) {
         g_signal_connect(vte, "child-exited", G_CALLBACK(exit_with_status), nullptr);
