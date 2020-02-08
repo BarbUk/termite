@@ -1680,8 +1680,16 @@ static void target_drag_data_received(GtkWidget *,
                 guint               ,
                 guint               ,
                             keybind_info vte_info){
-    VteTerminal *vte =vte_info.vte;   
-    const char* t = reinterpret_cast<const char *>( gtk_selection_data_get_text(data) );
+    VteTerminal *vte =vte_info.vte;
+
+    std::string selection(reinterpret_cast<const char *>( gtk_selection_data_get_text(data) ));
+    std::string needle = "file://";
+    if (selection.compare(0, needle.length(), needle) == 0) {
+        selection.erase(0, needle.length());
+    }
+
+    selection.erase(std::remove(selection.begin(), selection.end(), '\n'), selection.end());
+    const char * t = selection.c_str();
     vte_terminal_feed_child (vte, t, -1);
 }
 
@@ -1813,7 +1821,7 @@ int main(int argc, char **argv) {
     GtkTargetEntry drag_entries[]= {{entry_text, 0, 0}};
     gtk_drag_dest_set(window, GTK_DEST_DEFAULT_ALL, drag_entries , 1, GDK_ACTION_COPY);
     g_signal_connect(window, "drag-data-received", G_CALLBACK(target_drag_data_received), &info);
-    
+
 
     if (!hold) {
         g_signal_connect(vte, "child-exited", G_CALLBACK(exit_with_status), nullptr);
