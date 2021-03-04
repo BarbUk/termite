@@ -673,7 +673,7 @@ static void move_backward(VteTerminal *vte, select_info *select, F is_word) {
         }
         if(prev_line){
             cursor_row--;
-            if(cursor_row <= begin_row(vte) ){
+            if(cursor_row <= first_row(vte) ){
                 prev_line=false;
             }else
 
