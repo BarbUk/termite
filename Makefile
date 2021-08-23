@@ -7,7 +7,7 @@ DATADIR ?= ${PREFIX}/share
 MANDIR ?= ${DATADIR}/man
 TERMINFO ?= ${DATADIR}/terminfo
 
-CXXFLAGS := -std=c++11 -O3 \
+CXXFLAGS := -std=c++17 -O3 \
 	    -Wall -Wextra -pedantic \
 	    -Winit-self \
 	    -Wshadow \

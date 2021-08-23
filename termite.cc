@@ -591,8 +591,8 @@ static void move(VteTerminal *vte, select_info *select, long col, long row) {
     vte_terminal_set_cursor_blink_mode(vte, VTE_CURSOR_BLINK_OFF);
 
     vte_terminal_set_cursor_position(vte,
-                                     clamp(new_cursor_col, 0l, end_col),
-                                     clamp(new_cursor_row, first_row(vte), last_row(vte)));
+                                     std::clamp(new_cursor_col, 0l, end_col),
+                                     std::clamp(new_cursor_row, first_row(vte), last_row(vte)));
 
     update_scroll(vte);
     update_selection(vte, select);
@@ -686,8 +686,8 @@ static void move_backward(VteTerminal *vte, select_info *select, F is_word) {
         g_free(codepoints);
     }
     vte_terminal_set_cursor_position(vte,
-                                     clamp(cursor_col, 0l, end_col),
-                                     clamp(cursor_row, first_row(vte), last_row(vte)));
+                                     std::clamp(cursor_col, 0l, end_col),
+                                     std::clamp(cursor_row, first_row(vte), last_row(vte)));
     update_scroll(vte);
     update_selection(vte, select);
 
@@ -836,8 +836,8 @@ static void move_forward(VteTerminal *vte, select_info *select, F is_word, bool 
     vte_terminal_set_cursor_blink_mode(vte, VTE_CURSOR_BLINK_OFF);
 
     vte_terminal_set_cursor_position(vte,
-                                     clamp(cursor_col, 0l, end_col),
-                                     clamp(cursor_row, first_row(vte), end_row));
+                                     std::clamp(cursor_col, 0l, end_col),
+                                     std::clamp(cursor_row, first_row(vte), end_row));
     update_scroll(vte);
     update_selection(vte, select);
 
