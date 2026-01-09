@@ -1657,14 +1657,14 @@ static void set_config(GtkWindow *window, VteTerminal *vte, GtkWidget *scrollbar
     }
 
     if (info->clickable_url) {
-        for (int i = 0; i < G_N_ELEMENTS (url_regex_patterns); ++i)
-        {
-            info->tag = vte_terminal_match_add_regex(vte,
-                vte_regex_new_for_match(url_regex_patterns[i],
-                    (gssize) strlen(url_regex_patterns[i]),
-                    PCRE2_UTF | PCRE2_NO_UTF_CHECK | PCRE2_UCP | PCRE2_MULTILINE,
-                    nullptr),
-                0);
+        for (size_t i = 0; i < G_N_ELEMENTS(url_regex_patterns); ++i) {
+            VteRegex *regex = vte_regex_new_for_match(
+                url_regex_patterns[i], (gssize)strlen(url_regex_patterns[i]),
+                PCRE2_UTF | PCRE2_NO_UTF_CHECK | PCRE2_UCP | PCRE2_MULTILINE, nullptr);
+            vte_regex_jit(regex, PCRE2_JIT_COMPLETE, nullptr);
+            vte_regex_jit(regex, PCRE2_JIT_PARTIAL_SOFT, nullptr);
+            info->tag = vte_terminal_match_add_regex(vte, regex, 0);
+            vte_regex_unref(regex);
         }
         vte_terminal_match_set_cursor_name(vte, info->tag, "hand");
     } else if (info->tag != -1) {
