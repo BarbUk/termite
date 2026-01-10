@@ -38,6 +38,9 @@ repos:
     rev: v1.42.0
     hooks:
       - id: typos
+        args:
+          - --exclude
+          - meson.build
   # Github action
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.10
