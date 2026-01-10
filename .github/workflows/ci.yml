@@ -49,7 +49,7 @@ jobs:
             g++-12
           echo '::endgroup::'
       - name: Install GCC problem matcher
-        uses: ammaraskar/gcc-problem-matcher@master
+        uses: ammaraskar/gcc-problem-matcher@0f9c86f9e693db67dacf53986e1674de5f2e5f28 # 0.3.0
       - name: Build
         run: |
           echo '::group::Configure'
