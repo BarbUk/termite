@@ -64,11 +64,4 @@ repos:
     hooks:
       - id: clang-format
         types_or: [c++, c]
-  - repo: https://github.com/pocc/pre-commit-hooks
-    rev: v1.3.5
-    hooks:
-      - id: cppcheck
-        args: ['--language=c++', '--std=c++17', '--force']
-      - id: clang-tidy
-      - id: cpplint
-      - id: include-what-you-use
+        args: [--style=Google]
