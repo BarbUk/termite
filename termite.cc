@@ -342,7 +342,7 @@ static void launch_in_directory(VteTerminal *vte) {
 static void
 find_urls(VteTerminal *vte, search_panel_info *panel_info)
 {
-    g_autoptr(GRegex) regex = g_regex_new(url_regex, G_REGEX_CASELESS, G_REGEX_MATCH_NOTEMPTY, nullptr);
+    static GRegex *regex = g_regex_new(url_regex, (GRegexCompileFlags)(G_REGEX_CASELESS | G_REGEX_OPTIMIZE), G_REGEX_MATCH_NOTEMPTY, nullptr);
     g_autofree char* content = vte_terminal_get_text_format(vte, VTE_FORMAT_TEXT);
 
     const char *start_pos = content;
@@ -1402,13 +1402,18 @@ GtkTreeModel *create_completion_model(VteTerminal *vte) {
 void search(VteTerminal *vte, const char *pattern, bool reverse) {
     auto terminal_search = reverse ? vte_terminal_search_find_previous : vte_terminal_search_find_next;
 
-    VteRegex *regex = vte_terminal_search_get_regex(vte);
-    if (regex) vte_regex_unref(regex);
-    vte_terminal_search_set_regex(vte,
-                    vte_regex_new_for_search(pattern,
+    VteRegex *regex = vte_regex_new_for_search(pattern,
                                     (gssize) strlen(pattern),
                                     PCRE2_MULTILINE | PCRE2_CASELESS,
-                                    nullptr), 0);
+                                    nullptr);
+    if (regex) {
+        vte_regex_jit(regex, PCRE2_JIT_COMPLETE, nullptr);
+        vte_regex_jit(regex, PCRE2_JIT_PARTIAL_SOFT, nullptr);
+        vte_terminal_search_set_regex(vte, regex, 0);
+        vte_regex_unref(regex);
+    } else {
+        vte_terminal_search_set_regex(vte, nullptr, 0);
+    }
 
     if (!terminal_search(vte)) {
         vte_terminal_unselect_all(vte);
@@ -1657,14 +1662,14 @@ static void set_config(GtkWindow *window, VteTerminal *vte, GtkWidget *scrollbar
     }
 
     if (info->clickable_url) {
-        for (int i = 0; i < G_N_ELEMENTS (url_regex_patterns); ++i)
-        {
-            info->tag = vte_terminal_match_add_regex(vte,
-                vte_regex_new_for_match(url_regex_patterns[i],
-                    (gssize) strlen(url_regex_patterns[i]),
-                    PCRE2_UTF | PCRE2_NO_UTF_CHECK | PCRE2_UCP | PCRE2_MULTILINE,
-                    nullptr),
-                0);
+        for (size_t i = 0; i < G_N_ELEMENTS(url_regex_patterns); ++i) {
+            VteRegex *regex = vte_regex_new_for_match(
+                url_regex_patterns[i], (gssize)strlen(url_regex_patterns[i]),
+                PCRE2_UTF | PCRE2_NO_UTF_CHECK | PCRE2_UCP | PCRE2_MULTILINE, nullptr);
+            vte_regex_jit(regex, PCRE2_JIT_COMPLETE, nullptr);
+            vte_regex_jit(regex, PCRE2_JIT_PARTIAL_SOFT, nullptr);
+            info->tag = vte_terminal_match_add_regex(vte, regex, 0);
+            vte_regex_unref(regex);
         }
         vte_terminal_match_set_cursor_name(vte, info->tag, "hand");
     } else if (info->tag != -1) {
