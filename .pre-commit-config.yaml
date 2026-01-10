@@ -1,0 +1,6 @@
+repos:
+  - repo: https://gitlab.archlinux.org/freso/archlinux-pre-commit
+    rev: 60333d4d7d738c3237006ed4e890a99523aa0124
+    hooks:
+      - id: namcap
+      - id: makepkg-update-srcinfo
