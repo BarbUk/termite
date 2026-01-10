@@ -1,17 +1,13 @@
----
 name: CI
-
 on:
   pull_request:
   push:
     branches:
       - main
-
 jobs:
   linux:
     name: Linux
     runs-on: ubuntu-24.04
-
     strategy:
       fail-fast: false
       matrix:
@@ -26,11 +22,9 @@ jobs:
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.cxxcompiler }}
       LDFLAGS: -fuse-ld=${{ matrix.linker }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Install dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -54,10 +48,8 @@ jobs:
             gcc-12 \
             g++-12
           echo '::endgroup::'
-
       - name: Install GCC problem matcher
         uses: ammaraskar/gcc-problem-matcher@master
-
       - name: Build
         run: |
           echo '::group::Configure'
@@ -67,7 +59,6 @@ jobs:
           echo '::group::Compile'
           meson compile -C _build
           echo '::endgroup::'
-
       - name: Test
         run: |
           meson test -C _build

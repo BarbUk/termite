@@ -259,4 +259,3 @@ For example, on Arch Linux:
 ::
 
         pacman -S ncurses
-

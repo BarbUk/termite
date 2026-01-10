@@ -176,4 +176,3 @@ This file documents notable user-facing changes introduced in each release.
 - The `TERM` environment variable is no longer set to `xterm-terminfo`, and
   the custom _terminfo_ entry is not supplied anymore. Instead, the values
   provided by VTE are used.
-
