@@ -19,7 +19,7 @@ About this fork
 
 .. admonition:: notice
 
-   The old contents of thise file are available in `<README.old.rst>`__.
+   The old contents of this file are available in `<README.old.rst>`__.
 
 The original authors of Termite are now `recommending Alacritty`__, which is
 indeed a fine terminal emulator; but it has a few shortcomings:
@@ -259,4 +259,3 @@ For example, on Arch Linux:
 ::
 
         pacman -S ncurses
-

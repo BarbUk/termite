@@ -1,0 +1,67 @@
+default_install_hook_types:
+  - pre-commit
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: destroyed-symlinks
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: fix-byte-order-marker
+      - id: check-yaml
+      - id: trailing-whitespace
+        exclude: ".(md|rst)$"
+      - id: mixed-line-ending
+      - id: check-json
+      - id: pretty-format-json
+        args:
+          - --autofix
+  # YAML
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        args: ["-d relaxed"]
+  - repo: https://github.com/google/yamlfmt
+    rev: v0.21.0
+    hooks:
+      - id: yamlfmt
+        language: system
+  # Spelling
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.42.0
+    hooks:
+      - id: typos
+        args:
+          - --no-check-files
+          - meson.build
+  # Github action
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.10
+    hooks:
+      - id: actionlint-system
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.20.0
+    hooks:
+      - id: zizmor
+  # Markdown
+  - repo: https://github.com/rvben/rumdl-pre-commit
+    rev: v0.0.212
+    hooks:
+      - id: rumdl-fmt
+        args:
+          - --disable
+          - MD013
+  # Cpp
+  - repo: https://github.com/pre-commit/mirrors-clang-format
+    rev: v21.1.8
+    hooks:
+      - id: clang-format
+        types_or: [c++, c]
+        args: [--style=Google]

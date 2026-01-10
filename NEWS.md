@@ -9,7 +9,6 @@ This file documents notable user-facing changes introduced in each release.
 - Fix vertical locations of URL hint labels in presence of empty lines
   in the terminal widget.
 
-
 ## v16.8
 
 ### Fixed
@@ -21,7 +20,6 @@ This file documents notable user-facing changes introduced in each release.
 
 - Avoid usage of deprecated VTE functionality.
 - Make VTE widget centered inside the Termite window.
-
 
 ## v16.7
 
@@ -45,7 +43,6 @@ This file documents notable user-facing changes introduced in each release.
 - Replace uses of `std::not1()`, which has been deprecated in C++17,
   with the generic `std::not_fn()` helper.
 
-
 ## v16.6
 
 ### Changed
@@ -53,7 +50,6 @@ This file documents notable user-facing changes introduced in each release.
 - Improved URL regex matching.
 - Update VTE subproject to version 0.72.2.
 - Meson 0.60.0 or newer is now required for building.
-
 
 ## v16.5
 
@@ -68,13 +64,11 @@ This file documents notable user-facing changes introduced in each release.
 
 - Update VTE subproject to version 0.70.0.
 
-
 ## v16.4
 
 ### Changed
 
 - Update VTE subproject to version 0.68.0.
-
 
 ## v16.3
 
@@ -84,13 +78,11 @@ This file documents notable user-facing changes introduced in each release.
   a crash triggered by visually selecting text when certain fonts and
   sizes are configured (for example Cascadia Mono at 12pt).
 
-
 ## v16.2
 
 ### Changed
 
 - Update VTE subproject to version 0.66.2
-
 
 ## v16.1
 
@@ -106,7 +98,6 @@ This file documents notable user-facing changes introduced in each release.
 ### Changed
 
 - Update VTE subproject to version 0.66.0.
-
 
 ## v16.0
 
@@ -124,7 +115,6 @@ This file documents notable user-facing changes introduced in each release.
 
 - Update VTE subproject to a prerelease of version 0.64.3.
 
-
 ## v15.3
 
 ### Added
@@ -135,7 +125,6 @@ This file documents notable user-facing changes introduced in each release.
 ### Changed
 
 - Update VTE subproject to a prerelease of version 0.64.3.
-
 
 ## v15.2
 
@@ -149,7 +138,6 @@ This file documents notable user-facing changes introduced in each release.
 ## Fixed
 
 - Install configuration file correctly in `sysconfdir`.
-
 
 ## v15.1
 
@@ -176,4 +164,3 @@ This file documents notable user-facing changes introduced in each release.
 - The `TERM` environment variable is no longer set to `xterm-terminfo`, and
   the custom _terminfo_ entry is not supplied anymore. Instead, the values
   provided by VTE are used.
-
