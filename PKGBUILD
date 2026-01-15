@@ -15,9 +15,9 @@ makedepends=(git gperf 'meson>=1.0' ninja glib2-devel)
 arch=(x86_64)
 backup=(etc/xdg/termite/config)
 validpgpkeys=(9F59A49568EE372AF17E5452B6D01F84A7519939)
-_tag=d72b48759669c53efe3bda424f9319dc9857830c
+_tag=99bd1c9040bc90e364736849753a308890dfca73 # git rev-parse "v$pkgver"
 source=("git+$url.git?signed#tag=$_tag")
-sha256sums=('b893c140de3fdbd87ee66c27cdcf1989e5f60de5694a7c201364fe6af40fa241')
+sha256sums=('50154c25e7bdd88977d1e11bea0fd6811a475f2865cc80382064d34d5bcb2037')
 
 build () {
 	rm -rf _build
