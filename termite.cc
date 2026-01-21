@@ -1372,7 +1372,8 @@ GtkTreeModel *create_completion_model(VteTerminal *vte) {
 
     long end_row, end_col;
     vte_terminal_get_cursor_position(vte, &end_col, &end_row);
-    auto content = get_text_range(vte, 0, 0, end_row, end_col);
+    long start_row = std::max(0l, end_row - 5000);
+    auto content = get_text_range(vte, start_row, 0, end_row, end_col);
 
     if (!content) {
         g_printerr("no content returned for completion\n");
