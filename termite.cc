@@ -163,6 +163,7 @@ struct config_info {
     int tag { -1 };
     gdouble font_scale { 0.0 };
     int font_size { 0 };
+    int completion_limit { 5000 };
 };
 
 struct keybind_info {
@@ -191,9 +192,9 @@ static gboolean button_press_cb(VteTerminal *vte, GdkEventButton *event, const c
 static void bell_cb(GtkWidget *vte, gboolean *urgent_on_bell);
 static gboolean focus_cb(GtkWindow *window);
 
-static GtkTreeModel *create_completion_model(VteTerminal *vte);
+static GtkTreeModel *create_completion_model(VteTerminal *vte, int completion_limit);
 static void search(VteTerminal *vte, const char *pattern, bool reverse);
-static void overlay_show(search_panel_info *info, overlay_mode mode, VteTerminal *vte);
+static void overlay_show(search_panel_info *info, overlay_mode mode, VteTerminal *vte, int completion_limit = 5000);
 static void get_vte_padding(VteTerminal *vte, int *left, int *top, int *right, int *bottom);
 static char *check_match(VteTerminal *vte, GdkEventButton *event);
 static void load_config(GtkWindow *window, VteTerminal *vte, GtkWidget *scrollbar, GtkWidget *hbox,
@@ -1029,10 +1030,10 @@ gboolean key_press_cb(VteTerminal *vte, GdkEventKey *event, keybind_info *info) 
                 copy_selection(vte);
                 break;
             case GDK_KEY_slash:
-                overlay_show(&info->panel, overlay_mode::search, vte);
+                overlay_show(&info->panel, overlay_mode::search, vte, info->config.completion_limit);
                 break;
             case GDK_KEY_question:
-                overlay_show(&info->panel, overlay_mode::rsearch, vte);
+                overlay_show(&info->panel, overlay_mode::rsearch, vte, info->config.completion_limit);
                 break;
             case GDK_KEY_n:
                 for ( long i = get_count(&info->select); i > 0; i--) {
@@ -1129,7 +1130,7 @@ gboolean key_press_cb(VteTerminal *vte, GdkEventKey *event, keybind_info *info) 
     } else if (modifiers == GDK_CONTROL_MASK) {
         switch (gdk_keyval_to_lower(event->keyval)) {
             case GDK_KEY_Tab:
-                overlay_show(&info->panel, overlay_mode::completion, vte);
+                overlay_show(&info->panel, overlay_mode::completion, vte, info->config.completion_limit);
                 return TRUE;
             case GDK_KEY_plus:
             case GDK_KEY_KP_Add:
@@ -1366,12 +1367,12 @@ adjust_font_size(VteTerminal* vte, GdkWindow* window, int font_size)
 }
 /* }}} */
 
-GtkTreeModel *create_completion_model(VteTerminal *vte) {
+GtkTreeModel *create_completion_model(VteTerminal *vte, int completion_limit) {
     GtkListStore *store = gtk_list_store_new(1, G_TYPE_STRING);
 
     long end_row, end_col;
     vte_terminal_get_cursor_position(vte, &end_col, &end_row);
-    long start_row = std::max(0l, end_row - 5000);
+    long start_row = std::max(0l, end_row - completion_limit);
     auto content = get_text_range(vte, start_row, 0, end_row, end_col);
 
     if (!content) {
@@ -1423,13 +1424,13 @@ void search(VteTerminal *vte, const char *pattern, bool reverse) {
     vte_terminal_copy_primary(vte);
 }
 
-void overlay_show(search_panel_info *info, overlay_mode mode, VteTerminal *vte) {
+void overlay_show(search_panel_info *info, overlay_mode mode, VteTerminal *vte, int completion_limit) {
     if (vte) {
         GtkEntryCompletion *completion = gtk_entry_completion_new();
         gtk_entry_set_completion(GTK_ENTRY(info->entry), completion);
         g_object_unref(completion);
 
-        GtkTreeModel *completion_model = create_completion_model(vte);
+        GtkTreeModel *completion_model = create_completion_model(vte, completion_limit);
         gtk_entry_completion_set_model(completion, completion_model);
         g_object_unref(completion_model);
 
@@ -1695,6 +1696,10 @@ static void set_config(GtkWindow *window, VteTerminal *vte, GtkWidget *scrollbar
 
     if (auto i = get_config_integer(config, "options", "scrollback_lines")) {
         vte_terminal_set_scrollback_lines(vte, *i);
+    }
+
+    if (auto i = get_config_integer(config, "options", "completion_limit")) {
+        info->completion_limit = *i;
     }
 
     if (auto s = get_config_string(config, "options", "cursor_blink")) {
