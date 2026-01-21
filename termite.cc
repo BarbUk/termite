@@ -42,6 +42,8 @@
 #include <gdk/gdkx.h>
 #endif
 
+#include <glib-unix.h>
+
 #include "url_regex.hh"
 
 static const char *const url_regex_patterns[] = {
@@ -1912,7 +1914,10 @@ int main(int argc, char **argv) {
         load_config(GTK_WINDOW(window), vte, scrollbar, hbox, &info.config,
                     nullptr, nullptr);
     };
-    signal(SIGUSR1, [](int){ reload_config(); });
+    g_unix_signal_add(SIGUSR1, [](gpointer user_data) -> gboolean {
+        (*static_cast<std::function<void()>*>(user_data))();
+        return G_SOURCE_CONTINUE;
+    }, &reload_config);
 
     GdkRGBA transparent {0, 0, 0, 0};
 
