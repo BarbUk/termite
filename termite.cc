@@ -398,15 +398,11 @@ static void draw_rectangle(cairo_t *cr, double x, double y, double height,
     cairo_close_path(cr);
 }
 
-static void draw_marker(cairo_t *cr, const PangoFontDescription *desc,
+static void draw_marker(cairo_t *cr, PangoLayout *layout,
                         const hint_info *hints, long x, long y, const char *msg,
                         bool active) {
-    cairo_text_extents_t ext;
     int width, height;
 
-    cairo_text_extents(cr, msg, &ext);
-    PangoLayout *layout = pango_cairo_create_layout(cr);
-    pango_layout_set_font_description(layout, desc);
     pango_layout_set_text(layout, msg, -1);
     pango_layout_get_size(layout, &width, &height);
 
@@ -428,8 +424,6 @@ static void draw_marker(cairo_t *cr, const PangoFontDescription *desc,
     pango_cairo_update_layout(cr, layout);
     pango_cairo_layout_path(cr, layout);
     cairo_fill(cr);
-
-    g_object_unref(layout);
 }
 
 static gboolean draw_cb(const draw_cb_info *info, cairo_t *cr) {
@@ -450,6 +444,9 @@ static gboolean draw_cb(const draw_cb_info *info, cairo_t *cr) {
 
         get_vte_padding(info->vte, &padding_left, &padding_top, &padding_right, &padding_bottom);
 
+        PangoLayout *layout = pango_cairo_create_layout(cr);
+        pango_layout_set_font_description(layout, desc);
+
         for (unsigned i = 0; i < info->panel->url_list.size(); i++) {
             const url_data &data = info->panel->url_list[i];
             const long x = data.col * cw + padding_left;
@@ -461,8 +458,10 @@ static gboolean draw_cb(const draw_cb_info *info, cairo_t *cr) {
                 active = strncmp(buffer, info->panel->fulltext, len) == 0;
 
             if (!info->filter_unmatched_urls || active || len == 0)
-                draw_marker(cr, desc, info->hints, x, y, buffer, active);
+                draw_marker(cr, layout, info->hints, x, y, buffer, active);
         }
+
+        g_object_unref(layout);
     }
 
     return FALSE;
