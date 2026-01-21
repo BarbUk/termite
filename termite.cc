@@ -328,7 +328,7 @@ static void set_size_hints(GtkWindow *window, VteTerminal *vte) {
 }
 
 static void launch_in_directory(VteTerminal *vte) {
-    const char *uri = vte_terminal_get_current_directory_uri(vte);
+    const char *uri = vte_terminal_get_termprop_string_by_id(vte, VTE_PROPERTY_ID_CURRENT_DIRECTORY_URI, nullptr);
     if (!uri) {
         g_printerr("no directory uri set\n");
         return;
