@@ -838,7 +838,7 @@ static void move_forward_blank_word(VteTerminal *vte, select_info *select) {
 
 /* {{{ CALLBACKS */
 void window_title_cb(VteTerminal *vte, gboolean *dynamic_title) {
-    const char *const title = *dynamic_title ? vte_terminal_get_window_title(vte) : nullptr;
+    const char *const title = *dynamic_title ? vte_terminal_get_termprop_string_by_id(vte, VTE_PROPERTY_ID_XTERM_TITLE, nullptr) : nullptr;
     gtk_window_set_title(GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(vte))),
                          title ? title : "termite");
 }
