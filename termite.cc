@@ -42,6 +42,8 @@
 #include <gdk/gdkx.h>
 #endif
 
+#include <glib-unix.h>
+
 #include "url_regex.hh"
 
 static const char *const url_regex_patterns[] = {
@@ -163,6 +165,7 @@ struct config_info {
     int tag { -1 };
     gdouble font_scale { 0.0 };
     int font_size { 0 };
+    int completion_limit { 5000 };
 };
 
 struct keybind_info {
@@ -191,9 +194,9 @@ static gboolean button_press_cb(VteTerminal *vte, GdkEventButton *event, const c
 static void bell_cb(GtkWidget *vte, gboolean *urgent_on_bell);
 static gboolean focus_cb(GtkWindow *window);
 
-static GtkTreeModel *create_completion_model(VteTerminal *vte);
+static GtkTreeModel *create_completion_model(VteTerminal *vte, int completion_limit);
 static void search(VteTerminal *vte, const char *pattern, bool reverse);
-static void overlay_show(search_panel_info *info, overlay_mode mode, VteTerminal *vte);
+static void overlay_show(search_panel_info *info, overlay_mode mode, VteTerminal *vte, int completion_limit = 5000);
 static void get_vte_padding(VteTerminal *vte, int *left, int *top, int *right, int *bottom);
 static char *check_match(VteTerminal *vte, GdkEventButton *event);
 static void load_config(GtkWindow *window, VteTerminal *vte, GtkWidget *scrollbar, GtkWidget *hbox,
@@ -328,7 +331,7 @@ static void set_size_hints(GtkWindow *window, VteTerminal *vte) {
 }
 
 static void launch_in_directory(VteTerminal *vte) {
-    const char *uri = vte_terminal_get_current_directory_uri(vte);
+    const char *uri = vte_terminal_get_termprop_string_by_id(vte, VTE_PROPERTY_ID_CURRENT_DIRECTORY_URI, nullptr);
     if (!uri) {
         g_printerr("no directory uri set\n");
         return;
@@ -398,15 +401,11 @@ static void draw_rectangle(cairo_t *cr, double x, double y, double height,
     cairo_close_path(cr);
 }
 
-static void draw_marker(cairo_t *cr, const PangoFontDescription *desc,
+static void draw_marker(cairo_t *cr, PangoLayout *layout,
                         const hint_info *hints, long x, long y, const char *msg,
                         bool active) {
-    cairo_text_extents_t ext;
     int width, height;
 
-    cairo_text_extents(cr, msg, &ext);
-    PangoLayout *layout = pango_cairo_create_layout(cr);
-    pango_layout_set_font_description(layout, desc);
     pango_layout_set_text(layout, msg, -1);
     pango_layout_get_size(layout, &width, &height);
 
@@ -428,8 +427,6 @@ static void draw_marker(cairo_t *cr, const PangoFontDescription *desc,
     pango_cairo_update_layout(cr, layout);
     pango_cairo_layout_path(cr, layout);
     cairo_fill(cr);
-
-    g_object_unref(layout);
 }
 
 static gboolean draw_cb(const draw_cb_info *info, cairo_t *cr) {
@@ -450,6 +447,9 @@ static gboolean draw_cb(const draw_cb_info *info, cairo_t *cr) {
 
         get_vte_padding(info->vte, &padding_left, &padding_top, &padding_right, &padding_bottom);
 
+        PangoLayout *layout = pango_cairo_create_layout(cr);
+        pango_layout_set_font_description(layout, desc);
+
         for (unsigned i = 0; i < info->panel->url_list.size(); i++) {
             const url_data &data = info->panel->url_list[i];
             const long x = data.col * cw + padding_left;
@@ -461,8 +461,10 @@ static gboolean draw_cb(const draw_cb_info *info, cairo_t *cr) {
                 active = strncmp(buffer, info->panel->fulltext, len) == 0;
 
             if (!info->filter_unmatched_urls || active || len == 0)
-                draw_marker(cr, desc, info->hints, x, y, buffer, active);
+                draw_marker(cr, layout, info->hints, x, y, buffer, active);
         }
+
+        g_object_unref(layout);
     }
 
     return FALSE;
@@ -839,7 +841,7 @@ static void move_forward_blank_word(VteTerminal *vte, select_info *select) {
 
 /* {{{ CALLBACKS */
 void window_title_cb(VteTerminal *vte, gboolean *dynamic_title) {
-    const char *const title = *dynamic_title ? vte_terminal_get_window_title(vte) : nullptr;
+    const char *const title = *dynamic_title ? vte_terminal_get_termprop_string_by_id(vte, VTE_PROPERTY_ID_XTERM_TITLE, nullptr) : nullptr;
     gtk_window_set_title(GTK_WINDOW(gtk_widget_get_toplevel(GTK_WIDGET(vte))),
                          title ? title : "termite");
 }
@@ -1030,10 +1032,10 @@ gboolean key_press_cb(VteTerminal *vte, GdkEventKey *event, keybind_info *info) 
                 copy_selection(vte);
                 break;
             case GDK_KEY_slash:
-                overlay_show(&info->panel, overlay_mode::search, vte);
+                overlay_show(&info->panel, overlay_mode::search, vte, info->config.completion_limit);
                 break;
             case GDK_KEY_question:
-                overlay_show(&info->panel, overlay_mode::rsearch, vte);
+                overlay_show(&info->panel, overlay_mode::rsearch, vte, info->config.completion_limit);
                 break;
             case GDK_KEY_n:
                 for ( long i = get_count(&info->select); i > 0; i--) {
@@ -1130,7 +1132,7 @@ gboolean key_press_cb(VteTerminal *vte, GdkEventKey *event, keybind_info *info) 
     } else if (modifiers == GDK_CONTROL_MASK) {
         switch (gdk_keyval_to_lower(event->keyval)) {
             case GDK_KEY_Tab:
-                overlay_show(&info->panel, overlay_mode::completion, vte);
+                overlay_show(&info->panel, overlay_mode::completion, vte, info->config.completion_limit);
                 return TRUE;
             case GDK_KEY_plus:
             case GDK_KEY_KP_Add:
@@ -1367,12 +1369,13 @@ adjust_font_size(VteTerminal* vte, GdkWindow* window, int font_size)
 }
 /* }}} */
 
-GtkTreeModel *create_completion_model(VteTerminal *vte) {
+GtkTreeModel *create_completion_model(VteTerminal *vte, int completion_limit) {
     GtkListStore *store = gtk_list_store_new(1, G_TYPE_STRING);
 
     long end_row, end_col;
     vte_terminal_get_cursor_position(vte, &end_col, &end_row);
-    auto content = get_text_range(vte, 0, 0, end_row, end_col);
+    long start_row = std::max(0l, end_row - completion_limit);
+    auto content = get_text_range(vte, start_row, 0, end_row, end_col);
 
     if (!content) {
         g_printerr("no content returned for completion\n");
@@ -1423,13 +1426,13 @@ void search(VteTerminal *vte, const char *pattern, bool reverse) {
     vte_terminal_copy_primary(vte);
 }
 
-void overlay_show(search_panel_info *info, overlay_mode mode, VteTerminal *vte) {
+void overlay_show(search_panel_info *info, overlay_mode mode, VteTerminal *vte, int completion_limit) {
     if (vte) {
         GtkEntryCompletion *completion = gtk_entry_completion_new();
         gtk_entry_set_completion(GTK_ENTRY(info->entry), completion);
         g_object_unref(completion);
 
-        GtkTreeModel *completion_model = create_completion_model(vte);
+        GtkTreeModel *completion_model = create_completion_model(vte, completion_limit);
         gtk_entry_completion_set_model(completion, completion_model);
         g_object_unref(completion_model);
 
@@ -1697,6 +1700,10 @@ static void set_config(GtkWindow *window, VteTerminal *vte, GtkWidget *scrollbar
         vte_terminal_set_scrollback_lines(vte, *i);
     }
 
+    if (auto i = get_config_integer(config, "options", "completion_limit")) {
+        info->completion_limit = *i;
+    }
+
     if (auto s = get_config_string(config, "options", "cursor_blink")) {
         if (!g_ascii_strcasecmp(*s, "system")) {
             vte_terminal_set_cursor_blink_mode(vte, VTE_CURSOR_BLINK_SYSTEM);
@@ -1907,7 +1914,10 @@ int main(int argc, char **argv) {
         load_config(GTK_WINDOW(window), vte, scrollbar, hbox, &info.config,
                     nullptr, nullptr);
     };
-    signal(SIGUSR1, [](int){ reload_config(); });
+    g_unix_signal_add(SIGUSR1, [](gpointer user_data) -> gboolean {
+        (*static_cast<std::function<void()>*>(user_data))();
+        return G_SOURCE_CONTINUE;
+    }, &reload_config);
 
     GdkRGBA transparent {0, 0, 0, 0};
 
