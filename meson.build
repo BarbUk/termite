@@ -1,5 +1,5 @@
 project('termite', 'c', 'cpp',
-	version: '16.11',
+	version: '16.12',
 	meson_version: '>=0.61',
 	default_options: [
 		'b_asneeded=true',
@@ -9,7 +9,7 @@ project('termite', 'c', 'cpp',
 
 		# The following are all needed by the VTE subproject.
 		'c_std=gnu11',
-		'cpp_std=gnu++17',
+		'cpp_std=gnu++23',
 		'cpp_eh=default',
 		'cpp_rtti=true',
 	],
@@ -36,6 +36,8 @@ vte_subproject = subproject('vte',
 
 executable('termite',
 	'termite.cc',
+	'config.cc',
+	'util.cc',
 	dependencies: vte_subproject.get_variable('libvte_gtk3_dep'),
 	install: true,
 )
