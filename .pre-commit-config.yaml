@@ -2,7 +2,7 @@ default_install_hook_types:
   - pre-commit
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
     hooks:
       - id: check-added-large-files
       - id: check-case-conflict
@@ -24,18 +24,18 @@ repos:
           - --autofix
   # YAML
   - repo: https://github.com/adrienverge/yamllint.git
-    rev: v1.37.1
+    rev: cba56bcde1fdd01c1deb3f945e69764c291a6530 # frozen: v1.38.0
     hooks:
       - id: yamllint
         args: ["-d relaxed"]
   - repo: https://github.com/google/yamlfmt
-    rev: v0.21.0
+    rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
     hooks:
       - id: yamlfmt
         language: system
   # Spelling
   - repo: https://github.com/crate-ci/typos
-    rev: v1.42.0
+    rev: 57b11c6b7e54c402ccd9cda953f1072ec4f78e33 # frozen: v1.43.5
     hooks:
       - id: typos
         args:
@@ -43,16 +43,16 @@ repos:
           - meson.build
   # Github action
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.10
+    rev: 393031adb9afb225ee52ae2ccd7a5af5525e03e8 # frozen: v1.7.11
     hooks:
       - id: actionlint-system
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.20.0
+    rev: b546b77c44c466a54a42af5499dcc0dcc1a3193f # frozen: v1.22.0
     hooks:
       - id: zizmor
   # Markdown
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: v0.0.212
+    rev: 71c77a00aff0034a5b1793594f81b852562a5786 # frozen: v0.1.25
     hooks:
       - id: rumdl-fmt
         args:
@@ -60,7 +60,7 @@ repos:
           - MD013
   # Cpp
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v21.1.8
+    rev: 75ca4ad908dc4a99f57921f29b7e6c1521e10b26 # frozen: v21.1.8
     hooks:
       - id: clang-format
         types_or: [c++, c]
