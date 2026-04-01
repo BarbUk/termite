@@ -35,7 +35,7 @@ repos:
         language: system
   # Spelling
   - repo: https://github.com/crate-ci/typos
-    rev: 57b11c6b7e54c402ccd9cda953f1072ec4f78e33 # frozen: v1.43.5
+    rev: 631208b7aac2daa8b707f55e7331f9112b0e062d # frozen: v1.44.0
     hooks:
       - id: typos
         args:
@@ -47,12 +47,12 @@ repos:
     hooks:
       - id: actionlint-system
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: b546b77c44c466a54a42af5499dcc0dcc1a3193f # frozen: v1.22.0
+    rev: ea2eb407b4cbce87cf0d502f36578950494f5ac9 # frozen: v1.23.1
     hooks:
       - id: zizmor
   # Markdown
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: 71c77a00aff0034a5b1793594f81b852562a5786 # frozen: v0.1.25
+    rev: e8689b0f1c8828c81c5bde980a5e285e22787455 # frozen: v0.1.57
     hooks:
       - id: rumdl-fmt
         args:
@@ -60,7 +60,7 @@ repos:
           - MD013
   # Cpp
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: 75ca4ad908dc4a99f57921f29b7e6c1521e10b26 # frozen: v21.1.8
+    rev: 88c364bab316f4b6b18f6c298133bbbf32d7cd15 # frozen: v22.1.1
     hooks:
       - id: clang-format
         types_or: [c++, c]
