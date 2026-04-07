@@ -58,7 +58,7 @@ jobs:
       - name: Cache ccache
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
-          path: .ccache
+          path: "${CCACHE_DIR}"
           key: ${{ github.job }}-${{ matrix.compiler }}
           restore-keys: |
             ${{ github.job }}-${{ matrix.compiler }}
