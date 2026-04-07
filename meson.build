@@ -1,6 +1,6 @@
 project('termite', 'c', 'cpp',
 	version: '16.12',
-	meson_version: '>=0.61',
+	meson_version: '>=0.63',
 	default_options: [
 		'b_asneeded=true',
 		'b_lundef=false',
