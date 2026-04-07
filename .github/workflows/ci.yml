@@ -17,8 +17,8 @@ jobs:
           - compiler: clang
             cxxcompiler: clang++
             linker: lld
-          - compiler: gcc-12
-            cxxcompiler: g++-12
+          - compiler: gcc-14
+            cxxcompiler: g++-14
             linker: bfd
     env:
       CC: ${{ matrix.compiler }}
@@ -50,8 +50,8 @@ jobs:
             meson \
             lld \
             clang \
-            gcc-12 \
-            g++-12
+            gcc-14 \
+            g++-14
           echo '::endgroup::'
       - name: Install GCC problem matcher
         uses: ammaraskar/gcc-problem-matcher@0f9c86f9e693db67dacf53986e1674de5f2e5f28 # 0.3.0
