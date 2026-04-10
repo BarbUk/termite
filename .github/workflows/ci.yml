@@ -24,7 +24,6 @@ jobs:
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.cxxcompiler }}
       LDFLAGS: -fuse-ld=${{ matrix.linker }}
-      CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -36,11 +35,11 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           echo '::group::Update apt'
-          sudo apt-get update
+          sudo apt-get -qq update
           echo '::endgroup::'
 
           echo '::group::Install packages'
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -qqy --no-install-recommends \
             gperf \
             libgnutls28-dev \
             libgtk-3-dev \
@@ -55,17 +54,14 @@ jobs:
             g++-14 \
             ccache
           echo '::endgroup::'
-      - name: Cache ccache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@33522472633dbd32578e909b315f5ee43ba878ce # v1.2.22
         with:
-          path: "${CCACHE_DIR}"
-          key: ${{ github.job }}-${{ matrix.compiler }}
-          restore-keys: |
-            ${{ github.job }}-${{ matrix.compiler }}
-      - name: Install GCC problem matcher
-        uses: ammaraskar/gcc-problem-matcher@0f9c86f9e693db67dacf53986e1674de5f2e5f28 # 0.3.0
+          key: ${{ matrix.compiler }}
+          create-symlink: true
       - name: Build
         run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
           echo '::group::Configure'
           meson setup --prefix /usr _build -Dbuildtype=debugoptimized
           echo '::endgroup::'
