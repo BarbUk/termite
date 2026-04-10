@@ -15,8 +15,8 @@ makedepends=(gperf 'meson>=1.0' ninja glib2-devel)
 arch=(x86_64)
 backup=(etc/xdg/termite/config)
 validpgpkeys=(9F59A49568EE372AF17E5452B6D01F84A7519939)
-source=("$pkgname-$pkgver.tar.zst::$url/archive/$pkgname-v$pkgver.tar.zst")
-sha256sums=('4f456b41b487878db9acec3fcdd44ebc09f1c39458e9998f7e7ccebf5660a19e')
+source=("$pkgname-$pkgver.tar.zst::$url/releases/download/v$pkgver/$pkgname-v$pkgver.tar.zst")
+sha256sums=('d59cb65cb2fdbb1025eb8d56aa4f18a9cb754b397e67f9f9a1d2259d090e5b19')
 
 build () {
 	arch-meson _build .
