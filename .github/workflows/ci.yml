@@ -63,6 +63,7 @@ jobs:
         uses: ammaraskar/gcc-problem-matcher@0f9c86f9e693db67dacf53986e1674de5f2e5f28 # 0.3.0
       - name: Build
         run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
           echo '::group::Configure'
           meson setup --prefix /usr _build -Dbuildtype=debugoptimized
           echo '::endgroup::'
