@@ -1,11 +1,10 @@
 pkgbase = termite
 	pkgdesc = A simple VTE-based terminal
-	pkgver = 16.12
+	pkgver = 16.13
 	pkgrel = 1
 	url = https://github.com/barbuk/termite
 	arch = x86_64
 	license = LGPL-2.1-only
-	makedepends = git
 	makedepends = gperf
 	makedepends = meson>=1.0
 	makedepends = ninja
@@ -15,8 +14,8 @@ pkgbase = termite
 	depends = gnutls
 	depends = vte-common
 	backup = etc/xdg/termite/config
-	source = git+https://github.com/barbuk/termite.git?signed#tag=1ef7da0c6d27b4a4c2a39da0cec3c3adebbef963
+	source = termite-16.13.tar.zst::https://github.com/barbuk/termite/archive/termite-v16.13.tar.zst
 	validpgpkeys = 9F59A49568EE372AF17E5452B6D01F84A7519939
-	sha256sums = 4e239a8ebe1be409a09a9327f6682ad90a1a8f0492324644aa444f86ca8ca28b
+	sha256sums = 4f456b41b487878db9acec3fcdd44ebc09f1c39458e9998f7e7ccebf5660a19e
 
 pkgname = termite
