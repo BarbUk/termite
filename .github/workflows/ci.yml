@@ -14,17 +14,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - compiler: /usr/lib/ccache/clang
-            cxxcompiler: /usr/lib/ccache/clang++
+          - compiler: clang
+            cxxcompiler: clang++
             linker: lld
-          - compiler: /usr/lib/ccache/gcc-14
-            cxxcompiler: /usr/lib/ccache/g++-14
+          - compiler: gcc-14
+            cxxcompiler: g++-14
             linker: bfd
     env:
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.cxxcompiler }}
       LDFLAGS: -fuse-ld=${{ matrix.linker }}
-      CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -55,18 +54,11 @@ jobs:
             g++-14 \
             ccache
           echo '::endgroup::'
-      - name: Create ccache directory
-        run: |
-          mkdir -p "${CCACHE_DIR}"
-          du -sh "${CCACHE_DIR}" && ccache -s
-        shell: bash
-      - name: Cache ccache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@33522472633dbd32578e909b315f5ee43ba878ce # v1.2.22
         with:
-          path: "${CCACHE_DIR}"
-          key: ${{ github.job }}-${{ matrix.compiler }}
-          restore-keys: |
-            ${{ github.job }}-${{ matrix.compiler }}
+          key: ${{ matrix.compiler }}
+          create-symlink: true
       - name: Install GCC problem matcher
         uses: ammaraskar/gcc-problem-matcher@0f9c86f9e693db67dacf53986e1674de5f2e5f28 # 0.3.0
       - name: Build
