@@ -36,11 +36,11 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           echo '::group::Update apt'
-          sudo apt-get update
+          sudo apt-get -qq update
           echo '::endgroup::'
 
           echo '::group::Install packages'
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -qqy --no-install-recommends \
             gperf \
             libgnutls28-dev \
             libgtk-3-dev \
