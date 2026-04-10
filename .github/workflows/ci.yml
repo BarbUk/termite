@@ -14,11 +14,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - compiler: clang
-            cxxcompiler: clang++
+          - compiler: /usr/lib/ccache/clang
+            cxxcompiler: /usr/lib/ccache/clang++
             linker: lld
-          - compiler: gcc-14
-            cxxcompiler: g++-14
+          - compiler: /usr/lib/ccache/gcc-14
+            cxxcompiler: /usr/lib/ccache/g++-14
             linker: bfd
     env:
       CC: ${{ matrix.compiler }}
@@ -55,6 +55,11 @@ jobs:
             g++-14 \
             ccache
           echo '::endgroup::'
+      - name: Create ccache directory
+        run: |
+          mkdir -p "${CCACHE_DIR}"
+          du -sh "${CCACHE_DIR}" && ccache -s
+        shell: bash
       - name: Cache ccache
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
