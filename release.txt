@@ -1,0 +1,13 @@
+config
+config.cc
+config.hh
+LICENSE
+man
+meson.build
+README.rst
+subprojects
+termite.cc
+termite.desktop
+url_regex.hh
+util.cc
+util.hh

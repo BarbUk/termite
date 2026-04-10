@@ -46,14 +46,13 @@ jobs:
           meson setup _build -Dbuildtype=release
       - name: Prepare Assets
         run: |
-          rm -rf _build
-          tar cf - . | pigz > "/termite-${GITHUB_REF_NAME}.tar.gz"
+          /usr/bin/tar --posix -cf "termite-${GITHUB_REF_NAME}.tar.zst" --exclude "termite-${GITHUB_REF_NAME}.tar.zst" --exclude .git -P -C . --files-from release.txt --use-compress-program zstdmt
       - name: Generate artifact attestation
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
-          subject-path: "/termite-${GITHUB_REF_NAME}.tar.gz"
+          subject-path: "termite-${GITHUB_REF_NAME}.tar.zst"
       - name: Create Release
         run: |
-          gh release create --generate-notes --verify-tag "${GITHUB_REF#refs/*/}" -t "${GITHUB_REF#refs/*/}" --draft "/termite-${GITHUB_REF_NAME}.tar.gz"
+          gh release create --generate-notes --verify-tag "${GITHUB_REF#refs/*/}" -t "${GITHUB_REF#refs/*/}" --draft "termite-${GITHUB_REF_NAME}.tar.zst"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
