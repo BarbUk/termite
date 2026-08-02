@@ -6,7 +6,7 @@
 
 pkgdesc='A simple VTE-based terminal'
 pkgname=termite
-pkgver=16.13
+pkgver=16.14
 pkgrel=1
 url=https://github.com/barbuk/termite
 license=(LGPL-2.1-only)
@@ -16,7 +16,7 @@ arch=(x86_64)
 backup=(etc/xdg/termite/config)
 validpgpkeys=(9F59A49568EE372AF17E5452B6D01F84A7519939)
 source=("$pkgname-$pkgver.tar.zst::$url/releases/download/v$pkgver/$pkgname-v$pkgver.tar.zst")
-sha256sums=('d59cb65cb2fdbb1025eb8d56aa4f18a9cb754b397e67f9f9a1d2259d090e5b19')
+sha256sums=('5f95abcb4bbfc77fd91348e9d09e7a7b400e1fc612e534e3d9340d51a32af8f7')
 
 build () {
 	arch-meson _build .
