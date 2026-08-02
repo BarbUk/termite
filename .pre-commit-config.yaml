@@ -35,7 +35,7 @@ repos:
         language: system
   # Spelling
   - repo: https://github.com/crate-ci/typos
-    rev: 631208b7aac2daa8b707f55e7331f9112b0e062d # frozen: v1.44.0
+    rev: bee27e3a4fd1ea2111cf90ab89cd076c870fce14 # frozen: v1.48.0
     hooks:
       - id: typos
         args:
@@ -43,16 +43,16 @@ repos:
           - meson.build
   # Github action
   - repo: https://github.com/rhysd/actionlint
-    rev: 393031adb9afb225ee52ae2ccd7a5af5525e03e8 # frozen: v1.7.11
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # frozen: v1.7.12
     hooks:
       - id: actionlint-system
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: ea2eb407b4cbce87cf0d502f36578950494f5ac9 # frozen: v1.23.1
+    rev: 067260dc5fe6ea86b7551bfd6f8b3ba4e6c93129 # frozen: v1.28.0
     hooks:
       - id: zizmor
   # Markdown
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: a1a7657643f1f734d93e854bdb216da71c4356b9 # frozen: v0.1.62
+    rev: 4addd59f12366d18ac928131de736d48cdc020d6 # frozen: v0.2.40
     hooks:
       - id: rumdl-fmt
         args:
@@ -60,7 +60,7 @@ repos:
           - MD013
   # Cpp
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: 07a0f7667439f60724899f6ae288e4a4f572e0e1 # frozen: v22.1.2
+    rev: f4d7745e17a28aad7eed2f4874ca8d1568c11c4c # frozen: v22.1.8
     hooks:
       - id: clang-format
         types_or: [c++, c]
