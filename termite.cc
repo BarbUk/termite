@@ -495,6 +495,16 @@ static void update_scroll(VteTerminal* vte) {
   }
 }
 
+static void scroll_lines(VteTerminal* vte, double delta) {
+  GtkAdjustment* adjust = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(vte));
+  const double lower = gtk_adjustment_get_lower(adjust);
+  const double upper =
+      gtk_adjustment_get_upper(adjust) - gtk_adjustment_get_page_size(adjust);
+  gtk_adjustment_set_value(
+      adjust, std::clamp(gtk_adjustment_get_value(adjust) + delta, lower,
+                         std::max(lower, upper)));
+}
+
 long get_count(select_info* select) {
   long count = 1;
   if (select->count > 0) {
@@ -1128,6 +1138,30 @@ gboolean key_press_cb(VteTerminal* vte, GdkEventKey* event,
              modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_Tab)) {
     overlay_show(&info->panel, overlay_mode::completion, vte,
                  info->config.completion_limit);
+    return TRUE;
+  }
+  if (is_ins("scroll-line-up",
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 (keyval == GDK_KEY_Up || keyval == GDK_KEY_KP_Up))) {
+    scroll_lines(vte, -1);
+    return TRUE;
+  }
+  if (is_ins("scroll-line-down",
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 (keyval == GDK_KEY_Down || keyval == GDK_KEY_KP_Down))) {
+    scroll_lines(vte, 1);
+    return TRUE;
+  }
+  if (is_ins("scroll-page-up",
+             modifiers == GDK_SHIFT_MASK &&
+                 (keyval == GDK_KEY_Page_Up || keyval == GDK_KEY_KP_Page_Up))) {
+    scroll_lines(vte, -static_cast<double>(vte_terminal_get_row_count(vte)));
+    return TRUE;
+  }
+  if (is_ins("scroll-page-down",
+             modifiers == GDK_SHIFT_MASK && (keyval == GDK_KEY_Page_Down ||
+                                             keyval == GDK_KEY_KP_Page_Down))) {
+    scroll_lines(vte, static_cast<double>(vte_terminal_get_row_count(vte)));
     return TRUE;
   }
 

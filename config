@@ -107,6 +107,10 @@ color15 = #ffffff
 #url-hints = <Ctrl><Shift>X
 #completion = <Ctrl>Tab
 #reset-and-clear = <Ctrl><Shift>L
+#scroll-line-up = <Ctrl><Shift>Up
+#scroll-line-down = <Ctrl><Shift>Down
+#scroll-page-up = <Shift>Page_Up
+#scroll-page-down = <Shift>Page_Down
 
 [selection_keybindings]
 #exit-selection = Escape
