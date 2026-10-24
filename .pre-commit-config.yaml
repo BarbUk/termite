@@ -65,3 +65,7 @@ repos:
       - id: clang-format
         types_or: [c++, c]
         args: [--style=Google]
+  - repo: https://github.com/rstcheck/rstcheck
+    rev: d8774e96810795967ed9603f445b4e751e7b313f # frozen: v6.3.0
+    hooks:
+      - id: rstcheck
