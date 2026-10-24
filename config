@@ -95,4 +95,51 @@ color15 = #ffffff
 #border_width = 0.5
 #roundness = 2.0
 
+[keybindings]
+#zoom-in = <Ctrl><Shift>plus
+#zoom-out = <Ctrl>minus
+#zoom-reset = <Ctrl>equal
+#copy = <Ctrl><Shift>c
+#paste = <Ctrl><Shift>v
+#reload-config = <Ctrl><Shift>R
+#new-window = <Ctrl><Shift>T
+#selection-mode = <Ctrl><Shift>space
+#url-hints = <Ctrl><Shift>X
+#completion = <Ctrl>Tab
+#reset-and-clear = <Ctrl><Shift>L
+
+[selection_keybindings]
+#exit-selection = Escape
+#move-left = h
+#move-down = j
+#move-up = k
+#move-right = l
+#word-forward = w
+#word-backward = b
+#word-forward-end = e
+#word-forward-blank = <Shift>W
+#word-backward-blank = <Shift>B
+#word-forward-end-blank = <Shift>E
+#top-of-screen = <Shift>H
+#middle-of-screen = <Shift>M
+#bottom-of-screen = <Shift>L
+#first-row = g
+#last-row = <Shift>G
+#scroll-half-page-up = <Ctrl>u
+#scroll-half-page-down = <Ctrl>d
+#scroll-full-page-up = <Ctrl>b
+#scroll-full-page-down = <Ctrl>f
+#visual-mode = v
+#visual-line-mode = <Shift>V
+#visual-block-mode = <Ctrl>v
+#copy = y
+#search-forward = slash
+#search-backward = <Shift>question
+#find-next = n
+#find-previous = <Shift>N
+#url-search-forward = u
+#url-search-backward = <Shift>U
+#open-url = o
+#url-hints = x
+
 # vim: ft=dosini cms=#%s
