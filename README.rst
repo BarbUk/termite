@@ -52,8 +52,8 @@ A slightly `modified version of VTE`__ exposing the necessary functions for
 keyboard text selection and URL hints is built into Termite as a Meson
 subproject, and is included in packaged releases__.
 
-__ https://github.com/aperezdc/vte/tree/vte-0.64-termite
-__ https://github.com/aperezdc/termite/releases
+__ https://github.com/BarbUk/vte/tree/vte-0.84.1-termite
+__ https://github.com/BarbUk/termite/releases
 
 This means that you will need the dependencies needed to build VTE in order
 to build Termite:
@@ -72,7 +72,7 @@ BUILDING
 ========
 ::
 
-    git clone https://github.com/aperezdc/termite.git
+    git clone https://github.com/BarbUk/termite.git
     meson setup build termite
     meson compile -C build
 
