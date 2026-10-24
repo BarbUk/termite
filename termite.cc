@@ -236,14 +236,15 @@ void launch_browser(char* browser, char* url) {
 }
 
 static void launch_in_directory(VteTerminal* vte) {
-  const char* uri = vte_terminal_get_termprop_string_by_id(
-      vte, VTE_PROPERTY_ID_CURRENT_DIRECTORY_URI, nullptr);
+  auto uri = make_unique_ptr(vte_terminal_ref_termprop_uri_by_id(
+                                 vte, VTE_PROPERTY_ID_CURRENT_DIRECTORY_URI),
+                             g_uri_unref);
   if (!uri) {
     g_printerr("no directory uri set\n");
     return;
   }
-  auto dir =
-      make_unique_ptr(g_filename_from_uri(uri, nullptr, nullptr), g_free);
+  auto dir = make_unique_ptr(
+      g_uri_unescape_string(g_uri_get_path(uri.get()), nullptr), g_free);
   char term[] = "termite";  // maybe this should be argv[0]
   char* cmd[] = {term, nullptr};
   g_spawn_async(dir.get(), cmd, nullptr, G_SPAWN_SEARCH_PATH, nullptr, nullptr,
@@ -796,109 +797,225 @@ gboolean window_state_cb(GtkWindow*, GdkEventWindowState* event,
   return FALSE;
 }
 
+static bool is_action(
+    const std::unordered_map<std::string, keybinding>& bindings,
+    const char* action, const GdkEventKey* event, bool default_match) {
+  auto it = bindings.find(action);
+  if (it != bindings.end()) {
+    return it->second == *event;
+  }
+  return default_match;
+}
+
 gboolean key_press_cb(VteTerminal* vte, GdkEventKey* event,
                       keybind_info* info) {
   const guint modifiers = event->state & gtk_accelerator_get_default_mod_mask();
+  const guint keyval = event->keyval;
+  const guint lower_keyval = gdk_keyval_to_lower(keyval);
 
-  if (info->config.fullscreen && event->keyval == GDK_KEY_F11 && !modifiers) {
+  if (info->config.fullscreen && keyval == GDK_KEY_F11 && !modifiers) {
     info->fullscreen_toggle(info->window);
     return TRUE;
   }
 
   if (info->select.mode != vi_mode::insert) {
-    if (modifiers == GDK_CONTROL_MASK) {
-      switch (gdk_keyval_to_lower(event->keyval)) {
-        case GDK_KEY_bracketleft:
-          exit_command_mode(vte, &info->select);
-          gtk_widget_hide(info->panel.da);
-          gtk_widget_hide(info->panel.entry);
-          info->panel.url_list.clear();
-          break;
-        case GDK_KEY_v:
-          toggle_visual(vte, &info->select, vi_mode::visual_block);
-          break;
-        case GDK_KEY_Left:
-          move_backward_blank_word(vte, &info->select);
-          break;
-        case GDK_KEY_Right:
-          move_forward_blank_word(vte, &info->select);
-          break;
-        case GDK_KEY_u:
-          move(vte, &info->select, 0, -(vte_terminal_get_row_count(vte) / 2));
-          break;
-        case GDK_KEY_d:
-          move(vte, &info->select, 0, vte_terminal_get_row_count(vte) / 2);
-          break;
-        case GDK_KEY_b:
-          move(vte, &info->select, 0, -(vte_terminal_get_row_count(vte) - 1));
-          break;
-        case GDK_KEY_f:
-          move(vte, &info->select, 0, vte_terminal_get_row_count(vte) - 1);
-          break;
+    const auto& sel_keys = info->config.selection_keybindings;
+    auto is_sel = [&](const char* action, bool def) {
+      return is_action(sel_keys, action, event, def);
+    };
+
+    if (is_sel("exit-selection", (modifiers == GDK_CONTROL_MASK &&
+                                  lower_keyval == GDK_KEY_bracketleft) ||
+                                     (!modifiers && (keyval == GDK_KEY_Escape ||
+                                                     keyval == GDK_KEY_q)))) {
+      exit_command_mode(vte, &info->select);
+      gtk_widget_hide(info->panel.da);
+      gtk_widget_hide(info->panel.entry);
+      info->panel.url_list.clear();
+      return TRUE;
+    }
+    if (is_sel("visual-block-mode",
+               modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_v)) {
+      toggle_visual(vte, &info->select, vi_mode::visual_block);
+      return TRUE;
+    }
+    if (is_sel(
+            "word-backward-blank",
+            (modifiers == GDK_CONTROL_MASK && keyval == GDK_KEY_Left) ||
+                ((modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_B))) {
+      move_backward_blank_word(vte, &info->select);
+      return TRUE;
+    }
+    if (is_sel(
+            "word-forward-blank",
+            (modifiers == GDK_CONTROL_MASK && keyval == GDK_KEY_Right) ||
+                ((modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_W))) {
+      move_forward_blank_word(vte, &info->select);
+      return TRUE;
+    }
+    if (is_sel("scroll-half-page-up",
+               modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_u)) {
+      move(vte, &info->select, 0, -(vte_terminal_get_row_count(vte) / 2));
+      return TRUE;
+    }
+    if (is_sel("scroll-half-page-down",
+               modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_d)) {
+      move(vte, &info->select, 0, vte_terminal_get_row_count(vte) / 2);
+      return TRUE;
+    }
+    if (is_sel("scroll-full-page-up",
+               (modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_b) ||
+                   (!modifiers && keyval == GDK_KEY_Page_Up))) {
+      move(vte, &info->select, 0, -(vte_terminal_get_row_count(vte) - 1));
+      return TRUE;
+    }
+    if (is_sel("scroll-full-page-down",
+               (modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_f) ||
+                   (!modifiers && keyval == GDK_KEY_Page_Down))) {
+      move(vte, &info->select, 0, vte_terminal_get_row_count(vte) - 1);
+      return TRUE;
+    }
+    if (is_sel("word-backward",
+               (modifiers == GDK_SHIFT_MASK && keyval == GDK_KEY_Left) ||
+                   (!modifiers && keyval == GDK_KEY_b))) {
+      move_backward_word(vte, &info->select);
+      return TRUE;
+    }
+    if (is_sel("word-forward",
+               (modifiers == GDK_SHIFT_MASK && keyval == GDK_KEY_Right) ||
+                   (!modifiers && keyval == GDK_KEY_w))) {
+      move_forward_word(vte, &info->select);
+      return TRUE;
+    }
+    if (is_sel("move-left",
+               !modifiers && (keyval == GDK_KEY_Left || keyval == GDK_KEY_h))) {
+      move(vte, &info->select, -1, 0);
+      return TRUE;
+    }
+    if (is_sel("move-down",
+               !modifiers && (keyval == GDK_KEY_Down || keyval == GDK_KEY_j))) {
+      move(vte, &info->select, 0, 1);
+      return TRUE;
+    }
+    if (is_sel("move-up",
+               !modifiers && (keyval == GDK_KEY_Up || keyval == GDK_KEY_k))) {
+      move(vte, &info->select, 0, -1);
+      return TRUE;
+    }
+    if (is_sel("move-right", !modifiers && (keyval == GDK_KEY_Right ||
+                                            keyval == GDK_KEY_l))) {
+      move(vte, &info->select, 1, 0);
+      return TRUE;
+    }
+    if (is_sel("word-forward-end", !modifiers && keyval == GDK_KEY_e)) {
+      move_forward_end_word(vte, &info->select);
+      return TRUE;
+    }
+    if (is_sel("word-forward-end-blank",
+               (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_E)) {
+      move_forward_end_blank_word(vte, &info->select);
+      return TRUE;
+    }
+    if (is_sel("first-row",
+               !modifiers && (keyval == GDK_KEY_g || keyval == GDK_KEY_Home))) {
+      move_to_row_start(vte, &info->select, first_row(vte));
+      return TRUE;
+    }
+    if (is_sel("last-row",
+               ((modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_G) ||
+                   (!modifiers && keyval == GDK_KEY_End))) {
+      move_to_row_start(vte, &info->select, last_row(vte));
+      return TRUE;
+    }
+    if (is_sel("top-of-screen",
+               (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_H)) {
+      move_to_row_start(vte, &info->select, top_row(vte));
+      return TRUE;
+    }
+    if (is_sel("middle-of-screen",
+               (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_M)) {
+      move_to_row_start(vte, &info->select, middle_row(vte));
+      return TRUE;
+    }
+    if (is_sel("bottom-of-screen",
+               (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_L)) {
+      move_to_row_start(vte, &info->select, bottom_row(vte));
+      return TRUE;
+    }
+    if (is_sel("visual-mode", !modifiers && keyval == GDK_KEY_v)) {
+      toggle_visual(vte, &info->select, vi_mode::visual);
+      return TRUE;
+    }
+    if (is_sel("visual-line-mode",
+               (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_V)) {
+      toggle_visual(vte, &info->select, vi_mode::visual_line);
+      return TRUE;
+    }
+    if (is_sel("copy", !modifiers && keyval == GDK_KEY_y)) {
+      copy_selection(vte);
+      return TRUE;
+    }
+    if (is_sel("search-forward", !modifiers && keyval == GDK_KEY_slash)) {
+      overlay_show(&info->panel, overlay_mode::search, vte,
+                   info->config.completion_limit);
+      return TRUE;
+    }
+    if (is_sel("search-backward", (modifiers & ~GDK_SHIFT_MASK) == 0 &&
+                                      keyval == GDK_KEY_question)) {
+      overlay_show(&info->panel, overlay_mode::rsearch, vte,
+                   info->config.completion_limit);
+      return TRUE;
+    }
+    if (is_sel("find-next", !modifiers && keyval == GDK_KEY_n)) {
+      for (long i = get_count(&info->select); i > 0; i--) {
+        vte_terminal_search_find_next(vte);
+      }
+      vte_terminal_copy_primary(vte);
+      return TRUE;
+    }
+    if (is_sel("find-previous",
+               (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_N)) {
+      for (long i = get_count(&info->select); i > 0; i--) {
+        vte_terminal_search_find_previous(vte);
+      }
+      vte_terminal_copy_primary(vte);
+      return TRUE;
+    }
+    if (is_sel("url-search-forward", !modifiers && keyval == GDK_KEY_u)) {
+      for (long i = get_count(&info->select); i > 0; i--) {
+        search(vte, &info->panel, url_regex, false);
       }
       return TRUE;
     }
-    if (modifiers == GDK_SHIFT_MASK) {
-      switch (event->keyval) {
-        case GDK_KEY_Left:
-          move_backward_word(vte, &info->select);
-          return TRUE;
-        case GDK_KEY_Right:
-          move_forward_word(vte, &info->select);
-          return TRUE;
+    if (is_sel("url-search-backward",
+               (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_U)) {
+      for (long i = get_count(&info->select); i > 0; i--) {
+        search(vte, &info->panel, url_regex, true);
       }
+      return TRUE;
     }
-    switch (event->keyval) {
-      case GDK_KEY_Escape:
-      case GDK_KEY_q:
+    if (is_sel("open-url", !modifiers && (keyval == GDK_KEY_o ||
+                                          keyval == GDK_KEY_Return))) {
+      open_selection(info->config.browser, vte);
+      if (keyval == GDK_KEY_Return) {
         exit_command_mode(vte, &info->select);
-        gtk_widget_hide(info->panel.da);
-        gtk_widget_hide(info->panel.entry);
-        info->panel.url_list.clear();
-        break;
-      case GDK_KEY_Page_Up:
-        move(vte, &info->select, 0, -(vte_terminal_get_row_count(vte) - 1));
-        break;
-      case GDK_KEY_Page_Down:
-        move(vte, &info->select, 0, (vte_terminal_get_row_count(vte) - 1));
-        break;
-      case GDK_KEY_Left:
-      case GDK_KEY_h:
-        move(vte, &info->select, -1, 0);
-        break;
-      case GDK_KEY_Down:
-      case GDK_KEY_j:
-        move(vte, &info->select, 0, 1);
-        break;
-      case GDK_KEY_Up:
-      case GDK_KEY_k:
-        move(vte, &info->select, 0, -1);
-        break;
-      case GDK_KEY_Right:
-      case GDK_KEY_l:
-        move(vte, &info->select, 1, 0);
-        break;
-      case GDK_KEY_b:
-        move_backward_word(vte, &info->select);
-        break;
-      case GDK_KEY_B:
-        move_backward_blank_word(vte, &info->select);
-        break;
-      case GDK_KEY_w:
-        move_forward_word(vte, &info->select);
-        break;
-      case GDK_KEY_W:
-        move_forward_blank_word(vte, &info->select);
-        break;
-      case GDK_KEY_e:
-        move_forward_end_word(vte, &info->select);
-        break;
-      case GDK_KEY_E:
-        move_forward_end_blank_word(vte, &info->select);
-        break;
-      case GDK_KEY_Home:
-        set_cursor_column(vte, &info->select, 0);
-        break;
+      }
+      return TRUE;
+    }
+    if (is_sel("url-hints", !modifiers && keyval == GDK_KEY_x)) {
+      if (info->config.browser) {
+        find_urls(vte, &info->panel);
+        gtk_widget_show(info->panel.da);
+        overlay_show(&info->panel, overlay_mode::urlselect, nullptr);
+      }
+      return TRUE;
+    }
+
+    if (modifiers == GDK_CONTROL_MASK || modifiers == GDK_SHIFT_MASK) {
+      return TRUE;
+    }
+
+    switch (keyval) {
       case GDK_KEY_0:
         if (info->select.count == 0) {
           set_cursor_column(vte, &info->select, 0);
@@ -914,82 +1031,14 @@ gboolean key_press_cb(VteTerminal* vte, GdkEventKey* event,
       case GDK_KEY_7:
       case GDK_KEY_8:
       case GDK_KEY_9:
-        info->select.count = info->select.count * 10 + (event->keyval - '0');
+        info->select.count = info->select.count * 10 + (keyval - '0');
         break;
       case GDK_KEY_asciicircum:
         set_cursor_column(vte, &info->select, 0);
         move_first(vte, &info->select, std::not_fn(g_unichar_isspace));
         break;
       case GDK_KEY_dollar:
-      case GDK_KEY_End:
         move_to_eol(vte, &info->select);
-        break;
-      case GDK_KEY_g:
-        move_to_row_start(vte, &info->select, first_row(vte));
-        break;
-      case GDK_KEY_G:
-        move_to_row_start(vte, &info->select, last_row(vte));
-        break;
-      case GDK_KEY_H:
-        move_to_row_start(vte, &info->select, top_row(vte));
-        break;
-      case GDK_KEY_M:
-        move_to_row_start(vte, &info->select, middle_row(vte));
-        break;
-      case GDK_KEY_L:
-        move_to_row_start(vte, &info->select, bottom_row(vte));
-        break;
-      case GDK_KEY_v:
-        toggle_visual(vte, &info->select, vi_mode::visual);
-        break;
-      case GDK_KEY_V:
-        toggle_visual(vte, &info->select, vi_mode::visual_line);
-        break;
-      case GDK_KEY_y:
-        copy_selection(vte);
-        break;
-      case GDK_KEY_slash:
-        overlay_show(&info->panel, overlay_mode::search, vte,
-                     info->config.completion_limit);
-        break;
-      case GDK_KEY_question:
-        overlay_show(&info->panel, overlay_mode::rsearch, vte,
-                     info->config.completion_limit);
-        break;
-      case GDK_KEY_n:
-        for (long i = get_count(&info->select); i > 0; i--) {
-          vte_terminal_search_find_next(vte);
-        }
-        vte_terminal_copy_primary(vte);
-        break;
-      case GDK_KEY_N:
-        for (long i = get_count(&info->select); i > 0; i--) {
-          vte_terminal_search_find_previous(vte);
-        }
-        vte_terminal_copy_primary(vte);
-        break;
-      case GDK_KEY_u:
-        for (long i = get_count(&info->select); i > 0; i--) {
-          search(vte, &info->panel, url_regex, false);
-        }
-        break;
-      case GDK_KEY_U:
-        for (long i = get_count(&info->select); i > 0; i--) {
-          search(vte, &info->panel, url_regex, true);
-        }
-        break;
-      case GDK_KEY_o:
-        open_selection(info->config.browser, vte);
-        break;
-      case GDK_KEY_Return:
-        open_selection(info->config.browser, vte);
-        exit_command_mode(vte, &info->select);
-        break;
-      case GDK_KEY_x:
-        if (!info->config.browser) break;
-        find_urls(vte, &info->panel);
-        gtk_widget_show(info->panel.da);
-        overlay_show(&info->panel, overlay_mode::urlselect, nullptr);
         break;
       case GDK_KEY_plus:
       case GDK_KEY_KP_Add:
@@ -1005,64 +1054,91 @@ gboolean key_press_cb(VteTerminal* vte, GdkEventKey* event,
     }
     return TRUE;
   }
+
+  const auto& ins_keys = info->config.keybindings;
+  auto is_ins = [&](const char* action, bool def) {
+    return is_action(ins_keys, action, event, def);
+  };
+
+  if (is_ins("zoom-in", (modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                         lower_keyval == GDK_KEY_plus) ||
+                            (modifiers == GDK_CONTROL_MASK &&
+                             (lower_keyval == GDK_KEY_plus ||
+                              lower_keyval == GDK_KEY_KP_Add)))) {
+    increase_font_scale(vte);
+    return TRUE;
+  }
+  if (is_ins("zoom-out", modifiers == GDK_CONTROL_MASK &&
+                             (lower_keyval == GDK_KEY_minus ||
+                              lower_keyval == GDK_KEY_KP_Subtract))) {
+    decrease_font_scale(vte);
+    return TRUE;
+  }
+  if (is_ins("zoom-reset", (modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                            lower_keyval == GDK_KEY_equal) ||
+                               (modifiers == GDK_CONTROL_MASK &&
+                                lower_keyval == GDK_KEY_0))) {
+    reset_font_scale(vte, info->config.font_scale);
+    return TRUE;
+  }
+  if (is_ins("new-window", modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                               lower_keyval == GDK_KEY_t)) {
+    launch_in_directory(vte);
+    return TRUE;
+  }
+  if (is_ins("selection-mode",
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 (lower_keyval == GDK_KEY_space ||
+                  lower_keyval == GDK_KEY_nobreakspace))) {
+    enter_command_mode(vte, &info->select);
+    return TRUE;
+  }
+  if (is_ins("url-hints", modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                              lower_keyval == GDK_KEY_x)) {
+    enter_command_mode(vte, &info->select);
+    find_urls(vte, &info->panel);
+    gtk_widget_show(info->panel.da);
+    overlay_show(&info->panel, overlay_mode::urlselect, nullptr);
+    exit_command_mode(vte, &info->select);
+    return TRUE;
+  }
+  if (is_ins("copy", modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                         lower_keyval == GDK_KEY_c)) {
+    copy_selection(vte);
+    return TRUE;
+  }
+  if (is_ins("paste", modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                          lower_keyval == GDK_KEY_v)) {
+    vte_terminal_paste_clipboard(vte);
+    return TRUE;
+  }
+  if (is_ins("reload-config",
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 lower_keyval == GDK_KEY_r)) {
+    reload_config();
+    return TRUE;
+  }
+  if (is_ins("reset-and-clear",
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 lower_keyval == GDK_KEY_l)) {
+    vte_terminal_reset(vte, TRUE, TRUE);
+    return TRUE;
+  }
+  if (is_ins("completion",
+             modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_Tab)) {
+    overlay_show(&info->panel, overlay_mode::completion, vte,
+                 info->config.completion_limit);
+    return TRUE;
+  }
+
   if (modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK)) {
-    switch (gdk_keyval_to_lower(event->keyval)) {
-      case GDK_KEY_plus:
-        increase_font_scale(vte);
-        return TRUE;
-      case GDK_KEY_equal:
-        reset_font_scale(vte, info->config.font_scale);
-        return TRUE;
-      case GDK_KEY_t:
-        launch_in_directory(vte);
-        return TRUE;
-      case GDK_KEY_space:
-      case GDK_KEY_nobreakspace:  // shift-space on some keyboard layouts
-        enter_command_mode(vte, &info->select);
-        return TRUE;
-      case GDK_KEY_x:
-        enter_command_mode(vte, &info->select);
-        find_urls(vte, &info->panel);
-        gtk_widget_show(info->panel.da);
-        overlay_show(&info->panel, overlay_mode::urlselect, nullptr);
-        exit_command_mode(vte, &info->select);
-        return TRUE;
-      case GDK_KEY_c:
-        copy_selection(vte);
-        return TRUE;
-      case GDK_KEY_v:
-        vte_terminal_paste_clipboard(vte);
-        return TRUE;
-      case GDK_KEY_r:
-        reload_config();
-        return TRUE;
-      case GDK_KEY_l:
-        vte_terminal_reset(vte, TRUE, TRUE);
-        return TRUE;
-      default:
-        if (modify_key_feed(event, info, modify_table)) return TRUE;
-    }
+    if (modify_key_feed(event, info, modify_table)) return TRUE;
   } else if ((modifiers == (GDK_CONTROL_MASK | GDK_MOD1_MASK)) ||
              (modifiers ==
               (GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SHIFT_MASK))) {
     if (modify_key_feed(event, info, modify_meta_table)) return TRUE;
   } else if (modifiers == GDK_CONTROL_MASK) {
-    switch (gdk_keyval_to_lower(event->keyval)) {
-      case GDK_KEY_Tab:
-        overlay_show(&info->panel, overlay_mode::completion, vte,
-                     info->config.completion_limit);
-        return TRUE;
-      case GDK_KEY_plus:
-      case GDK_KEY_KP_Add:
-        increase_font_scale(vte);
-        return TRUE;
-      case GDK_KEY_minus:
-      case GDK_KEY_KP_Subtract:
-        decrease_font_scale(vte);
-        return TRUE;
-      case GDK_KEY_equal:
-        reset_font_scale(vte, info->config.font_scale);
-        return TRUE;
+    switch (lower_keyval) {
       case GDK_KEY_c:
         if (info->config.smart_copy && vte_terminal_get_has_selection(vte)) {
           copy_selection(vte);

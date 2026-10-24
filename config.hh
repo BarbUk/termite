@@ -4,6 +4,18 @@
 #include <vte/vte.h>
 
 #include <optional>
+#include <string>
+#include <unordered_map>
+
+struct keybinding {
+  guint keyval{0};
+  GdkModifierType modifiers{static_cast<GdkModifierType>(0)};
+
+  bool operator==(const GdkEventKey& event) const {
+    return keyval == gdk_keyval_to_lower(event.keyval) &&
+           modifiers == (event.state & gtk_accelerator_get_default_mod_mask());
+  }
+};
 
 struct hint_info {
   PangoFontDescription* font{nullptr};
@@ -36,6 +48,8 @@ struct config_info {
   gdouble font_scale{0.0};
   int font_size{0};
   int completion_limit{5000};
+  std::unordered_map<std::string, keybinding> keybindings{};
+  std::unordered_map<std::string, keybinding> selection_keybindings{};
 };
 
 bool load_config(config_info& config, VteTerminal* vte, GtkWindow* window,

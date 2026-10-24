@@ -303,6 +303,39 @@ static void set_config(GtkWindow* window, VteTerminal* vte,
   g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
                cfg_bool("gtk_dark_theme", FALSE), nullptr);
 
+  auto parse_keybindings =
+      [config](const char* section,
+               std::unordered_map<std::string, keybinding>& map) {
+        map.clear();
+        if (!g_key_file_has_group(config, section)) {
+          return;
+        }
+        gsize len = 0;
+        gchar** keys = g_key_file_get_keys(config, section, &len, nullptr);
+        if (!keys) {
+          return;
+        }
+        for (gsize i = 0; i < len; ++i) {
+          auto val = get_config_string(config, section, keys[i]);
+          if (!val) {
+            continue;
+          }
+          guint keyval = 0;
+          GdkModifierType mods = static_cast<GdkModifierType>(0);
+          gtk_accelerator_parse(*val, &keyval, &mods);
+          if (keyval != 0 || mods != 0) {
+            map[keys[i]] = {gdk_keyval_to_lower(keyval), mods};
+          } else {
+            g_printerr("invalid keybinding for %s: %s\n", keys[i], *val);
+          }
+          g_free(*val);
+        }
+        g_strfreev(keys);
+      };
+
+  parse_keybindings("keybindings", info->keybindings);
+  parse_keybindings("selection_keybindings", info->selection_keybindings);
+
   load_theme(window, vte, config, info->hints);
 }
 
