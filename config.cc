@@ -23,7 +23,7 @@ std::optional<T> get_config(T (*get)(GKeyFile*, const char*, const char*,
                             GKeyFile* config, const char* group,
                             const char* key) {
   GError* error = nullptr;
-  std::optional<T> value = get(config, group, key, &error);
+  T value = get(config, group, key, &error);
   if (error) {
     g_error_free(error);
     return {};
