@@ -1,6 +1,6 @@
 pkgbase = termite
 	pkgdesc = A simple VTE-based terminal
-	pkgver = 16.14
+	pkgver = 16.15
 	pkgrel = 1
 	url = https://github.com/barbuk/termite
 	arch = x86_64
@@ -14,8 +14,8 @@ pkgbase = termite
 	depends = gnutls
 	depends = vte-common
 	backup = etc/xdg/termite/config
-	source = termite-16.14.tar.zst::https://github.com/barbuk/termite/releases/download/v16.14/termite-v16.14.tar.zst
+	source = https://github.com/barbuk/termite/releases/download/v16.15/termite-v16.15.tar.zst
 	validpgpkeys = 9F59A49568EE372AF17E5452B6D01F84A7519939
-	sha256sums = 5f95abcb4bbfc77fd91348e9d09e7a7b400e1fc612e534e3d9340d51a32af8f7
+	sha256sums = 8f11429bbf7bab15a25c8b47ea3ec8c75152255e1acf5857c870edd1e07d5887
 
 pkgname = termite
