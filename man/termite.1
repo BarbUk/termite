@@ -23,7 +23,7 @@ Set the termite window's title to \fITITLE\fP. This disables dynamic
 titles.
 .IP "\fB\-d\fR, \fB\-\-directory\fR\fB=\fR\fIDIRECTORY\fR"
 Tell termite to change to \fIDIRECTORY\fP when launching.
-.IP "\fB\-\-icon\fR\f8=\fR\fIICON\fR"
+.IP "\fB\-i\fR, \fB\-\-icon\fR\fB=\fR\fIICON\fR"
 Override the window icon name.
 .IP "\fB\-\-hold\fR"
 Keep termite open after the child process exits.
@@ -40,6 +40,9 @@ Set the windows name part of the \fIWM_CLASS\fR property.
 .IP "\fB\-\-class\fR\fB=\fR\fICLASS\fR"
 Set the windows class part of the \fIWM_CLASS\fR property.
 .SH KEYBINDINGS
+Keybindings can be customized in the configuration file under the
+\fB[keybindings]\fP and \fB[selection_keybindings]\fP sections. See
+\fBtermite.config\fP(5) for available action names.
 .SS Insert Mode
 \fBInsert Mode\fP is the default mode common to most terminal emulators.
 This is where you enter commands and interact with the programs running
@@ -75,7 +78,7 @@ reset and clear
 increase font size
 .IP "\fBctrl--\fP"
 decrease font size
-.IP "\fBctrl-=\fP"
+.IP "\fBctrl-=\fP or \fBctrl-0\fP"
 reset font size to default
 .SS Selection Mode
 In \fBSelection Mode\fP you interact with the interface of \fBtermite\fP
@@ -113,15 +116,15 @@ move cursor to the top of the screen
 move cursor to the middle of the screen
 .IP "\fBL\fP"
 move cursor to the bottom of the screen
-.IP "\fB0\fP or \fBhome\fP"
-move cursor to the first column in the row\fP"
+.IP "\fB0\fP"
+move cursor to the first column in the row
 .IP "\fB^\fP"
 beginning-of-line (first non-blank character)
-.IP "\fB$\fP or \fBend\fP"
+.IP "\fB$\fP"
 end-of-line
-.IP "\fBg\fP"
+.IP "\fBg\fP or \fBhome\fP"
 jump to start of first row
-.IP "\fBG\fP"
+.IP "\fBG\fP or \fBend\fP"
 jump to start of last row
 .IP "\fBctrl-u\fP"
 \fB[count]\fP move cursor a half screen up
@@ -174,19 +177,19 @@ In hints mode, the input will be accepted as soon as termite considers
 it a unique match.
 .SS Current Directory
 The directory can be set by a process running in the terminal. For
-example, with \fRzsh\fP:
+example, with \fBzsh\fP:
 .IP
 .nf
-if [[ $TERM == xterm-termite ]]; then
+if [[ ${VTE_VERSION:-0} -ge 3405 ]]; then
   . /etc/profile.d/vte.sh
   __vte_osc7
 fi
 .fi
 .PP
-or for example, with \fRbash\fP:
+or for example, with \fBbash\fP:
 .IP
 .nf
-if [[ $TERM == xterm-termite ]]; then
+if [[ ${VTE_VERSION:-0} -ge 3405 ]]; then
   . /etc/profile.d/vte.sh
   __vte_prompt_command
 fi

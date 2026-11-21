@@ -4,7 +4,9 @@ termite.conf \- Termite configuration file
 .SH SYNOPSIS
 \fI$XDG_CONFIG_HOME/termite/config\fR
 .SH DESCRIPTION
-The configuration file format for the \fBtermite\fR
+The configuration file format for \fBtermite\fR. The configuration can be
+reloaded at runtime using the \fBreload-config\fR keybinding or by sending
+\fBSIGUSR1\fR to the \fBtermite\fR process.
 .SH OPTIONS
 .PP
 .IP \fIallow_bold\fR
@@ -15,8 +17,8 @@ Have the terminal beep on the terminal bell.
 .IP \fIbold_is_bright\fR
 Display bold text in bright colors.
 .IP \fIbrowser\fR
-Set the default browser for opening links. If its not set,
-\fI$BROWSER\fR is read. If that's not set, url hints will be disabled.
+Set the default browser for opening links. If it is not set,
+\fI$BROWSER\fR is read, with \fBxdg-open\fR as a fallback.
 .IP \fIword_char_exceptions\fR
 Set characters to exclude as word boundaries on selection;
 .IP \fIclickable_url\fR
@@ -59,6 +61,9 @@ Automatically hide the mouse pointer when you start typing.
 Set the number of lines to limit the terminal's scrollback. Setting
 the number of lines to 0 disables this feature, a negative value makes
 the scrollback "infinite".
+.IP \fIcompletion_limit\fR
+Maximum number of scrollback lines scanned when building the word completion
+list (default: \fB5000\fR).
 .IP \fIscrollbar\fR
 Specify scrollbar visibility and position. Accepts \fBoff\fR, \fBleft\fR and
 \fBright\fR.
@@ -91,6 +96,31 @@ Enable shaping of Arabic text (default: \fBfalse\fR).
 Adapt text size depending on the DPI of the monitor in use, trying to
 make text size match the expected physical size specified in points for
 the chosen font (default: \fBfalse\fR).
+.SH COLORS
+The \fB[colors]\fR section configures the terminal color scheme using GTK
+color syntax (for example \fB#dcdccc\fR or \fBrgba(63, 63, 63, 0.8)\fR).
+.PP
+.IP "\fIforeground\fR, \fIforeground_bold\fR, \fIbackground\fR"
+Default foreground, bold foreground, and background colors. Setting an RGBA
+\fIbackground\fR enables transparency when running under a compositor.
+.IP "\fIcursor\fR, \fIcursor_foreground\fR"
+Cursor background and foreground colors.
+.IP \fIhighlight\fR
+Selection highlight background color.
+.IP "\fIcolor0\fR .. \fIcolor255\fR"
+Override individual entries in the 256-color palette.
+.SH HINTS
+The \fB[hints]\fR section configures the appearance of URL hint overlays.
+.PP
+.IP \fIfont\fR
+Pango font description used for hint labels.
+.IP "\fIforeground\fR, \fIbackground\fR"
+Text and background colors for inactive hint labels.
+.IP "\fIactive_foreground\fR, \fIactive_background\fR"
+Text and background colors for hint labels matching the typed prefix.
+.IP "\fIborder\fR, \fIborder_width\fR, \fIpadding\fR, \fIroundness\fR"
+Border color (defaults to \fIforeground\fR), border width, inner padding, and
+corner radius of hint badges.
 .SH KEYBINDINGS
 Custom keybindings can be configured in the \fB[keybindings]\fR (Insert Mode)
 and \fB[selection_keybindings]\fR (Selection Mode) sections using GTK
