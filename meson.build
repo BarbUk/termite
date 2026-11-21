@@ -34,12 +34,25 @@ vte_subproject = subproject('vte',
 	],
 )
 
-executable('termite',
+termite_exe = executable('termite',
 	'termite.cc',
 	'config.cc',
 	'util.cc',
 	dependencies: vte_subproject.get_variable('libvte_gtk3_dep'),
 	install: true,
+)
+
+test_termite = executable('test_termite',
+	'tests/test_termite.cc',
+	'config.cc',
+	'util.cc',
+	dependencies: vte_subproject.get_variable('libvte_gtk3_dep'),
+	install: false,
+)
+
+test('termite-unit',
+	test_termite,
+	env: {'TERMITE_BIN': termite_exe.full_path()},
 )
 
 install_data('config',
