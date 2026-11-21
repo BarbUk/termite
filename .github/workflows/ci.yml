@@ -6,69 +6,121 @@ on:
       - main
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   linux:
-    name: Linux
+    name: Linux (${{ matrix.name }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         include:
-          - compiler: clang
+          - name: clang
+            compiler: clang
             cxxcompiler: clang++
             linker: lld
-          - compiler: gcc-14
+            packages: clang lld
+            meson_args: ""
+            sanitizer: false
+          - name: gcc-14
+            compiler: gcc-14
             cxxcompiler: g++-14
             linker: bfd
+            packages: gcc-14 g++-14
+            meson_args: ""
+            sanitizer: false
+          - name: clang-asan
+            compiler: clang
+            cxxcompiler: clang++
+            linker: lld
+            packages: clang lld
+            meson_args: -Db_sanitize=address,undefined -Db_lto=false
+            sanitizer: true
     env:
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.cxxcompiler }}
       LDFLAGS: -fuse-ld=${{ matrix.linker }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
+      - name: Cache subprojects
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            subprojects/*
+            !subprojects/vte.wrap
+          key: subprojects-${{ hashFiles('subprojects/vte.wrap') }}
       - name: Install dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
+          COMPILER_PACKAGES: ${{ matrix.packages }}
         run: |
           echo '::group::Update apt'
           sudo apt-get -qq update
           echo '::endgroup::'
 
           echo '::group::Install packages'
+          # shellcheck disable=SC2086
           sudo apt-get install -qqy --no-install-recommends \
             gperf \
+            libfmt-dev \
             libgnutls28-dev \
             libgtk-3-dev \
             libicu-dev \
+            liblz4-dev \
             libpcre2-dev \
             libsystemd-dev \
             ninja-build \
             meson \
-            lld \
-            clang \
-            gcc-14 \
-            g++-14 \
-            ccache
+            ccache \
+            ${COMPILER_PACKAGES}
+          sudo update-ccache-symlinks
           echo '::endgroup::'
       - name: ccache
-        uses: hendrikmuhs/ccache-action@33522472633dbd32578e909b315f5ee43ba878ce # v1.2.22
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
-          key: ${{ matrix.compiler }}
+          key: ${{ matrix.name }}
           create-symlink: true
       - name: Build
+        env:
+          MESON_ARGS: ${{ matrix.meson_args }}
+          SANITIZER: ${{ matrix.sanitizer }}
         run: |
           export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
           echo '::group::Configure'
-          meson setup --prefix /usr _build -Dbuildtype=debugoptimized
+          # shellcheck disable=SC2086
+          meson setup --prefix /usr _build -Dbuildtype=debugoptimized ${MESON_ARGS}
           echo '::endgroup::'
 
           echo '::group::Compile'
-          meson compile -C _build
+          if [ "${SANITIZER}" = "true" ]; then
+            meson compile -C _build termite test_termite
+          else
+            meson compile -C _build
+          fi
+          echo '::endgroup::'
+
+          echo '::group::ccache stats'
+          ccache -s
           echo '::endgroup::'
       - name: Test
+        env:
+          SANITIZER: ${{ matrix.sanitizer }}
         run: |
-          meson test -C _build
+          if [ "${SANITIZER}" = "true" ]; then
+            meson test -C _build termite-unit --print-errorlogs
+          else
+            meson test -C _build --print-errorlogs
+          fi
+      - name: Verify install and release manifest
+        if: ${{ !matrix.sanitizer }}
+        run: |
+          meson install -C _build --skip-subprojects vte --destdir /tmp/termite-install
+          while IFS= read -r path; do
+            test -e "${path}" || { echo "Missing release.txt path: ${path}"; exit 1; }
+          done < release.txt

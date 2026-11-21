@@ -4,10 +4,11 @@ config.hh
 LICENSE
 man
 meson.build
-README.rst
+README.md
 subprojects
 termite.cc
 termite.desktop
+tests
 url_regex.hh
 util.cc
 util.hh

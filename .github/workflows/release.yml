@@ -2,19 +2,30 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
-permissions:
-  contents: write
+      - "v*"
+permissions: {}
 jobs:
   build-and-release:
     name: Build and Release
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      CC: gcc-14
+      CXX: g++-14
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
+      - name: Verify tag matches project version
+        run: |
+          meson_version="$(grep -m1 "version:" meson.build | sed -E "s/.*'([^']+)'.*/\1/")"
+          if [ "v${meson_version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match meson.build version v${meson_version}"
+            exit 1
+          fi
       - name: Install dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -23,6 +34,7 @@ jobs:
           sudo apt-get -qq install -y --no-install-recommends \
             build-essential \
             ca-certificates \
+            gperf \
             libgtk-3-dev \
             libicu-dev \
             libpcre2-dev \
@@ -31,22 +43,44 @@ jobs:
             libgnutls28-dev \
             ninja-build \
             meson \
-            pigz \
-            gcc \
-            g++ \
-            lld \
-            git
-      - name: Build
-        env:
-          CC: gcc-14
-          CXX: g++-14
+            gcc-14 \
+            g++-14 \
+            git \
+            zstd
+      - name: Populate subprojects
         run: |
           meson setup _build -Dbuildtype=release
       - name: Prepare Assets
         run: |
-          /usr/bin/tar --posix -cf "termite-${GITHUB_REF_NAME}.tar.zst" --exclude "termite-${GITHUB_REF_NAME}.tar.zst" --exclude .git -P -C . --files-from release.txt --use-compress-program zstdmt
+          archive="termite-${GITHUB_REF_NAME}.tar.zst"
+          mtime="$(git log -1 --format=%ct)"
+          /usr/bin/tar --posix \
+            --sort=name \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --mtime="@${mtime}" \
+            --exclude "${archive}" \
+            --exclude .git \
+            --exclude 'subprojects/.wraplock' \
+            -cf "${archive}" \
+            -C . \
+            --files-from release.txt \
+            --use-compress-program zstdmt
+          sha256sum "${archive}" > "${archive}.sha256"
+      - name: Verify release archive offline
+        run: |
+          archive="termite-${GITHUB_REF_NAME}.tar.zst"
+          tmpdir="$(mktemp -d)"
+          tar --use-compress-program=zstd -xf "${archive}" -C "${tmpdir}"
+          meson setup "${tmpdir}/_build" "${tmpdir}" -Dbuildtype=release --wrap-mode=nodownload
+          meson compile -C "${tmpdir}/_build"
+          meson test -C "${tmpdir}/_build" --print-errorlogs
+          meson install -C "${tmpdir}/_build" --skip-subprojects vte --destdir "${tmpdir}/_stage"
+          rm -rf "${tmpdir}"
       - name: Create Release
         run: |
-          gh release create --generate-notes --verify-tag "${GITHUB_REF#refs/*/}" -t "${GITHUB_REF#refs/*/}" --draft "termite-${GITHUB_REF_NAME}.tar.zst"
+          archive="termite-${GITHUB_REF_NAME}.tar.zst"
+          gh release create --generate-notes --verify-tag "${GITHUB_REF_NAME}" -t "${GITHUB_REF_NAME}" --draft "${archive}" "${archive}.sha256"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
