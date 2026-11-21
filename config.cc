@@ -1,8 +1,9 @@
 #include "config.hh"
 
 #include <array>
-#include <functional>
+#include <cstring>
 #include <string>
+#include <utility>
 
 #include "url_regex.hh"
 #include "util.hh"
@@ -10,12 +11,72 @@
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
 
-static const char* const url_regex_patterns[] = {
+namespace {
+
+constexpr const char* kDefaultBrowser = "xdg-open";
+constexpr const char* kUrlCursorName = "hand";
+
+constexpr std::array<const char*, 6> kUrlRegexPatterns = {
     REGEX_URL_AS_IS, REGEX_URL_HTTP, REGEX_URL_FILE,
     REGEX_URL_VOIP,  REGEX_EMAIL,    REGEX_NEWS_MAN,
 };
 
-using namespace std::placeholders;
+constexpr std::array<std::pair<std::string_view, insert_action>,
+                     static_cast<size_t>(insert_action::count)>
+    kInsertActionNames = {{
+        {"zoom-in", insert_action::zoom_in},
+        {"zoom-out", insert_action::zoom_out},
+        {"zoom-reset", insert_action::zoom_reset},
+        {"new-window", insert_action::new_window},
+        {"selection-mode", insert_action::selection_mode},
+        {"url-hints", insert_action::url_hints},
+        {"copy", insert_action::copy},
+        {"paste", insert_action::paste},
+        {"reload-config", insert_action::reload_config},
+        {"reset-and-clear", insert_action::reset_and_clear},
+        {"completion", insert_action::completion},
+        {"scroll-line-up", insert_action::scroll_line_up},
+        {"scroll-line-down", insert_action::scroll_line_down},
+        {"scroll-page-up", insert_action::scroll_page_up},
+        {"scroll-page-down", insert_action::scroll_page_down},
+    }};
+
+constexpr std::array<std::pair<std::string_view, selection_action>,
+                     static_cast<size_t>(selection_action::count)>
+    kSelectionActionNames = {{
+        {"exit-selection", selection_action::exit_selection},
+        {"visual-block-mode", selection_action::visual_block_mode},
+        {"word-backward-blank", selection_action::word_backward_blank},
+        {"word-forward-blank", selection_action::word_forward_blank},
+        {"scroll-half-page-up", selection_action::scroll_half_page_up},
+        {"scroll-half-page-down", selection_action::scroll_half_page_down},
+        {"scroll-full-page-up", selection_action::scroll_full_page_up},
+        {"scroll-full-page-down", selection_action::scroll_full_page_down},
+        {"word-backward", selection_action::word_backward},
+        {"word-forward", selection_action::word_forward},
+        {"move-left", selection_action::move_left},
+        {"move-down", selection_action::move_down},
+        {"move-up", selection_action::move_up},
+        {"move-right", selection_action::move_right},
+        {"word-forward-end", selection_action::word_forward_end},
+        {"word-forward-end-blank", selection_action::word_forward_end_blank},
+        {"first-row", selection_action::first_row},
+        {"last-row", selection_action::last_row},
+        {"top-of-screen", selection_action::top_of_screen},
+        {"middle-of-screen", selection_action::middle_of_screen},
+        {"bottom-of-screen", selection_action::bottom_of_screen},
+        {"visual-mode", selection_action::visual_mode},
+        {"visual-line-mode", selection_action::visual_line_mode},
+        {"copy", selection_action::copy},
+        {"search-forward", selection_action::search_forward},
+        {"search-backward", selection_action::search_backward},
+        {"find-next", selection_action::find_next},
+        {"find-previous", selection_action::find_previous},
+        {"url-search-forward", selection_action::url_search_forward},
+        {"url-search-backward", selection_action::url_search_backward},
+        {"open-url", selection_action::open_url},
+        {"url-hints", selection_action::url_hints},
+    }};
 
 template <typename T>
 std::optional<T> get_config(T (*get)(GKeyFile*, const char*, const char*,
@@ -31,48 +92,115 @@ std::optional<T> get_config(T (*get)(GKeyFile*, const char*, const char*,
   return value;
 }
 
-static auto get_config_integer(GKeyFile* config, const char* group,
-                               const char* key) {
+auto get_config_integer(GKeyFile* config, const char* group, const char* key) {
   return get_config<int>(g_key_file_get_integer, config, group, key);
 }
 
-static auto get_config_string(GKeyFile* config, const char* group,
-                              const char* key) {
-  return get_config<char*>(g_key_file_get_string, config, group, key);
+std::optional<std::string> get_config_string(GKeyFile* config,
+                                             const char* group,
+                                             const char* key) {
+  auto raw = get_config<char*>(g_key_file_get_string, config, group, key);
+  if (!raw) {
+    return {};
+  }
+  std::string result(*raw);
+  g_free(*raw);
+  return result;
 }
 
-static auto get_config_double(GKeyFile* config, const char* group,
-                              const char* key) {
+auto get_config_double(GKeyFile* config, const char* group, const char* key) {
   return get_config<double>(g_key_file_get_double, config, group, key);
 }
 
-static std::optional<GdkRGBA> get_config_color(GKeyFile* config,
-                                               const char* section,
-                                               const char* key) {
-  if (auto s = get_config_string(config, section, key)) {
-    GdkRGBA color;
-    if (gdk_rgba_parse(&color, *s)) {
-      g_free(*s);
-      return color;
-    }
-    g_printerr("invalid color string: %s\n", *s);
-    g_free(*s);
+std::optional<GdkRGBA> get_config_color(GKeyFile* config, const char* section,
+                                        const char* key) {
+  auto s = get_config_string(config, section, key);
+  if (!s) {
+    return {};
   }
+
+  GdkRGBA color;
+  if (gdk_rgba_parse(&color, s->c_str())) {
+    return color;
+  }
+
+  g_printerr("invalid color string: %s\n", s->c_str());
   return {};
 }
 
-static std::optional<cairo_pattern_t*> get_config_cairo_color(GKeyFile* config,
-                                                              const char* group,
-                                                              const char* key) {
+// Lazily allocates a fallback RGB pattern only when the config key is absent.
+cairo_pattern_t* load_cairo_color(GKeyFile* config, const char* group,
+                                  const char* key, double fallback_r,
+                                  double fallback_g, double fallback_b) {
   if (auto color = get_config_color(config, group, key)) {
     return cairo_pattern_create_rgba(color->red, color->green, color->blue,
                                      color->alpha);
   }
-  return {};
+  return cairo_pattern_create_rgb(fallback_r, fallback_g, fallback_b);
 }
 
-static void load_theme(GtkWindow* window, VteTerminal* vte, GKeyFile* config,
-                       hint_info& hints) {
+// Compile and JIT the static URL match regexes once per process.
+const std::array<VteRegex*, kUrlRegexPatterns.size()>& get_url_regexes() {
+  static const auto regexes = [] {
+    constexpr uint32_t kMatchFlags =
+        PCRE2_UTF | PCRE2_NO_UTF_CHECK | PCRE2_UCP | PCRE2_MULTILINE;
+    std::array<VteRegex*, kUrlRegexPatterns.size()> compiled{};
+    for (size_t i = 0; i < compiled.size(); ++i) {
+      VteRegex* regex = vte_regex_new_for_match(
+          kUrlRegexPatterns[i],
+          static_cast<gssize>(std::strlen(kUrlRegexPatterns[i])), kMatchFlags,
+          nullptr);
+      if (regex) {
+        vte_regex_jit(regex, PCRE2_JIT_COMPLETE, nullptr);
+        vte_regex_jit(regex, PCRE2_JIT_PARTIAL_SOFT, nullptr);
+      }
+      compiled[i] = regex;
+    }
+    return compiled;
+  }();
+  return regexes;
+}
+
+template <typename Table, typename Parser>
+void parse_keybindings(GKeyFile* config, const char* section, Table& table,
+                       Parser parse_action) {
+  table.fill(std::nullopt);
+  if (!g_key_file_has_group(config, section)) {
+    return;
+  }
+
+  gsize len = 0;
+  gchar** keys = g_key_file_get_keys(config, section, &len, nullptr);
+  if (!keys) {
+    return;
+  }
+
+  for (gsize i = 0; i < len; ++i) {
+    auto action = parse_action(keys[i]);
+    if (!action) {
+      g_printerr("unknown keybinding action in [%s]: %s\n", section, keys[i]);
+      continue;
+    }
+
+    auto val = get_config_string(config, section, keys[i]);
+    if (!val) {
+      continue;
+    }
+
+    guint keyval = 0;
+    GdkModifierType mods = static_cast<GdkModifierType>(0);
+    gtk_accelerator_parse(val->c_str(), &keyval, &mods);
+    if (keyval != 0 || mods != 0) {
+      table[static_cast<size_t>(*action)] = {gdk_keyval_to_lower(keyval), mods};
+    } else {
+      g_printerr("invalid keybinding for %s: %s\n", keys[i], val->c_str());
+    }
+  }
+  g_strfreev(keys);
+}
+
+void load_theme(GtkWindow* window, VteTerminal* vte, GKeyFile* config,
+                hint_info& hints) {
   std::array<GdkRGBA, 256> palette;
   char color_key[] = "color000";
 
@@ -129,21 +257,25 @@ static void load_theme(GtkWindow* window, VteTerminal* vte, GKeyFile* config,
     vte_terminal_set_color_highlight(vte, &*color);
   }
 
+  hints.reset();
+
   if (auto s = get_config_string(config, "hints", "font")) {
-    hints.font = pango_font_description_from_string(*s);
-    g_free(*s);
+    hints.font = pango_font_description_from_string(s->c_str());
   }
 
-  hints.fg = get_config_cairo_color(config, "hints", "foreground")
-                 .value_or(cairo_pattern_create_rgb(1, 1, 1));
-  hints.bg = get_config_cairo_color(config, "hints", "background")
-                 .value_or(cairo_pattern_create_rgb(0, 0, 0));
-  hints.af = get_config_cairo_color(config, "hints", "active_foreground")
-                 .value_or(cairo_pattern_create_rgb(0.9, 0.5, 0.5));
-  hints.ab = get_config_cairo_color(config, "hints", "active_background")
-                 .value_or(cairo_pattern_create_rgb(0, 0, 0));
-  hints.border =
-      get_config_cairo_color(config, "hints", "border").value_or(hints.fg);
+  hints.fg = load_cairo_color(config, "hints", "foreground", 1, 1, 1);
+  hints.bg = load_cairo_color(config, "hints", "background", 0, 0, 0);
+  hints.af =
+      load_cairo_color(config, "hints", "active_foreground", 0.9, 0.5, 0.5);
+  hints.ab = load_cairo_color(config, "hints", "active_background", 0, 0, 0);
+
+  if (auto color = get_config_color(config, "hints", "border")) {
+    hints.border = cairo_pattern_create_rgba(color->red, color->green,
+                                             color->blue, color->alpha);
+  } else {
+    hints.border = cairo_pattern_reference(hints.fg);
+  }
+
   hints.padding = get_config_double(config, "hints", "padding").value_or(2.0);
   hints.border_width =
       get_config_double(config, "hints", "border_width").value_or(1.0);
@@ -151,10 +283,9 @@ static void load_theme(GtkWindow* window, VteTerminal* vte, GKeyFile* config,
       get_config_double(config, "hints", "roundness").value_or(1.5);
 }
 
-static void set_config(GtkWindow* window, VteTerminal* vte,
-                       GtkWidget* scrollbar, GtkWidget* hbox, config_info* info,
-                       char** icon, bool* show_scrollbar_ptr,
-                       GKeyFile* config) {
+void set_config(GtkWindow* window, VteTerminal* vte, GtkWidget* scrollbar,
+                GtkWidget* hbox, config_info* info, char** icon,
+                bool* show_scrollbar_ptr, GKeyFile* config) {
   auto cfg_bool = [config](const char* key, gboolean value) {
     return get_config<gboolean>(g_key_file_get_boolean, config, "options", key)
         .value_or(value);
@@ -190,51 +321,51 @@ static void set_config(GtkWindow* window, VteTerminal* vte,
   info->copy_mouse_selection = cfg_bool("copy_mouse_selection", FALSE);
   info->font_scale = vte_terminal_get_font_scale(vte);
 
-  g_free(info->browser);
-  info->browser = nullptr;
-
   if (auto s = get_config_string(config, "options", "browser")) {
-    info->browser = *s;
+    info->browser = std::move(*s);
+  } else if (const char* env_browser = g_getenv("BROWSER");
+             env_browser && *env_browser != '\0') {
+    info->browser = env_browser;
   } else {
-    info->browser = g_strdup(g_getenv("BROWSER"));
+    info->browser = kDefaultBrowser;
   }
 
-  if (!info->browser) {
-    info->browser = g_strdup("xdg-open");
-  }
-
+  // Register cached URL regexes once and attach the hand cursor to every tag.
   if (info->clickable_url) {
-    for (size_t i = 0; i < G_N_ELEMENTS(url_regex_patterns); ++i) {
-      VteRegex* regex = vte_regex_new_for_match(
-          url_regex_patterns[i], (gssize)strlen(url_regex_patterns[i]),
-          PCRE2_UTF | PCRE2_NO_UTF_CHECK | PCRE2_UCP | PCRE2_MULTILINE,
-          nullptr);
-      vte_regex_jit(regex, PCRE2_JIT_COMPLETE, nullptr);
-      vte_regex_jit(regex, PCRE2_JIT_PARTIAL_SOFT, nullptr);
-      info->tag = vte_terminal_match_add_regex(vte, regex, 0);
-      vte_regex_unref(regex);
+    if (info->url_tags.empty()) {
+      const auto& regexes = get_url_regexes();
+      info->url_tags.reserve(regexes.size());
+      for (VteRegex* regex : regexes) {
+        if (!regex) {
+          continue;
+        }
+        const int tag = vte_terminal_match_add_regex(vte, regex, 0);
+        vte_terminal_match_set_cursor_name(vte, tag, kUrlCursorName);
+        info->url_tags.push_back(tag);
+      }
     }
-    vte_terminal_match_set_cursor_name(vte, info->tag, "hand");
-  } else if (info->tag != -1) {
-    vte_terminal_match_remove(vte, info->tag);
-    info->tag = -1;
+  } else if (!info->url_tags.empty()) {
+    for (int tag : info->url_tags) {
+      vte_terminal_match_remove(vte, tag);
+    }
+    info->url_tags.clear();
   }
 
   if (auto s = get_config_string(config, "options", "word_char_exceptions")) {
-    vte_terminal_set_word_char_exceptions(vte, *s);
+    vte_terminal_set_word_char_exceptions(vte, s->c_str());
   }
 
   if (auto s = get_config_string(config, "options", "font")) {
-    PangoFontDescription* font = pango_font_description_from_string(*s);
+    PangoFontDescription* font = pango_font_description_from_string(s->c_str());
     info->font_size = pango_font_description_get_size_is_absolute(font)
                           ? 0
                           : pango_font_description_get_size(font);
     vte_terminal_set_font(vte, font);
     pango_font_description_free(font);
-    if (info->dpi_aware)
+    if (info->dpi_aware) {
       adjust_font_size(vte, gtk_widget_get_window(GTK_WIDGET(vte)),
                        info->font_size);
-    g_free(*s);
+    }
   }
 
   if (auto i = get_config_integer(config, "options", "scrollback_lines")) {
@@ -246,30 +377,28 @@ static void set_config(GtkWindow* window, VteTerminal* vte,
   }
 
   if (auto s = get_config_string(config, "options", "cursor_blink")) {
-    if (!g_ascii_strcasecmp(*s, "system")) {
+    if (!g_ascii_strcasecmp(s->c_str(), "system")) {
       vte_terminal_set_cursor_blink_mode(vte, VTE_CURSOR_BLINK_SYSTEM);
-    } else if (!g_ascii_strcasecmp(*s, "on")) {
+    } else if (!g_ascii_strcasecmp(s->c_str(), "on")) {
       vte_terminal_set_cursor_blink_mode(vte, VTE_CURSOR_BLINK_ON);
-    } else if (!g_ascii_strcasecmp(*s, "off")) {
+    } else if (!g_ascii_strcasecmp(s->c_str(), "off")) {
       vte_terminal_set_cursor_blink_mode(vte, VTE_CURSOR_BLINK_OFF);
     }
-    g_free(*s);
   }
 
   if (auto s = get_config_string(config, "options", "cursor_shape")) {
-    if (!g_ascii_strcasecmp(*s, "block")) {
+    if (!g_ascii_strcasecmp(s->c_str(), "block")) {
       vte_terminal_set_cursor_shape(vte, VTE_CURSOR_SHAPE_BLOCK);
-    } else if (!g_ascii_strcasecmp(*s, "ibeam")) {
+    } else if (!g_ascii_strcasecmp(s->c_str(), "ibeam")) {
       vte_terminal_set_cursor_shape(vte, VTE_CURSOR_SHAPE_IBEAM);
-    } else if (!g_ascii_strcasecmp(*s, "underline")) {
+    } else if (!g_ascii_strcasecmp(s->c_str(), "underline")) {
       vte_terminal_set_cursor_shape(vte, VTE_CURSOR_SHAPE_UNDERLINE);
     }
-    g_free(*s);
   }
 
   if (icon) {
     if (auto s = get_config_string(config, "options", "icon_name")) {
-      *icon = *s;
+      *icon = g_strdup(s->c_str());
     }
   }
 
@@ -279,15 +408,15 @@ static void set_config(GtkWindow* window, VteTerminal* vte,
 
   bool show_scrollbar = false;
   if (auto s = get_config_string(config, "options", "scrollbar")) {
-    if (!g_ascii_strcasecmp(*s, "left")) {
+    if (!g_ascii_strcasecmp(s->c_str(), "left")) {
       show_scrollbar = true;
       if (hbox && scrollbar) gtk_box_reorder_child(GTK_BOX(hbox), scrollbar, 0);
-    } else if (!g_ascii_strcasecmp(*s, "right")) {
+    } else if (!g_ascii_strcasecmp(s->c_str(), "right")) {
       show_scrollbar = true;
-      if (hbox && scrollbar)
+      if (hbox && scrollbar) {
         gtk_box_reorder_child(GTK_BOX(hbox), scrollbar, -1);
+      }
     }
-    g_free(*s);
   }
   if (scrollbar) {
     if (show_scrollbar) {
@@ -303,40 +432,87 @@ static void set_config(GtkWindow* window, VteTerminal* vte,
   g_object_set(gtk_settings_get_default(), "gtk-application-prefer-dark-theme",
                cfg_bool("gtk_dark_theme", FALSE), nullptr);
 
-  auto parse_keybindings =
-      [config](const char* section,
-               std::unordered_map<std::string, keybinding>& map) {
-        map.clear();
-        if (!g_key_file_has_group(config, section)) {
-          return;
-        }
-        gsize len = 0;
-        gchar** keys = g_key_file_get_keys(config, section, &len, nullptr);
-        if (!keys) {
-          return;
-        }
-        for (gsize i = 0; i < len; ++i) {
-          auto val = get_config_string(config, section, keys[i]);
-          if (!val) {
-            continue;
-          }
-          guint keyval = 0;
-          GdkModifierType mods = static_cast<GdkModifierType>(0);
-          gtk_accelerator_parse(*val, &keyval, &mods);
-          if (keyval != 0 || mods != 0) {
-            map[keys[i]] = {gdk_keyval_to_lower(keyval), mods};
-          } else {
-            g_printerr("invalid keybinding for %s: %s\n", keys[i], *val);
-          }
-          g_free(*val);
-        }
-        g_strfreev(keys);
-      };
-
-  parse_keybindings("keybindings", info->keybindings);
-  parse_keybindings("selection_keybindings", info->selection_keybindings);
+  parse_keybindings(config, "keybindings", info->keybindings,
+                    parse_insert_action);
+  parse_keybindings(config, "selection_keybindings",
+                    info->selection_keybindings, parse_selection_action);
 
   load_theme(window, vte, config, info->hints);
+}
+
+}  // namespace
+
+hint_info::hint_info(hint_info&& other) noexcept
+    : font(std::exchange(other.font, nullptr)),
+      fg(std::exchange(other.fg, nullptr)),
+      bg(std::exchange(other.bg, nullptr)),
+      af(std::exchange(other.af, nullptr)),
+      ab(std::exchange(other.ab, nullptr)),
+      border(std::exchange(other.border, nullptr)),
+      padding(other.padding),
+      border_width(other.border_width),
+      roundness(other.roundness) {}
+
+hint_info& hint_info::operator=(hint_info&& other) noexcept {
+  if (this == &other) {
+    return *this;
+  }
+  reset();
+  font = std::exchange(other.font, nullptr);
+  fg = std::exchange(other.fg, nullptr);
+  bg = std::exchange(other.bg, nullptr);
+  af = std::exchange(other.af, nullptr);
+  ab = std::exchange(other.ab, nullptr);
+  border = std::exchange(other.border, nullptr);
+  padding = other.padding;
+  border_width = other.border_width;
+  roundness = other.roundness;
+  return *this;
+}
+
+void hint_info::reset() noexcept {
+  if (font) {
+    pango_font_description_free(font);
+    font = nullptr;
+  }
+  if (fg) {
+    cairo_pattern_destroy(fg);
+    fg = nullptr;
+  }
+  if (bg) {
+    cairo_pattern_destroy(bg);
+    bg = nullptr;
+  }
+  if (af) {
+    cairo_pattern_destroy(af);
+    af = nullptr;
+  }
+  if (ab) {
+    cairo_pattern_destroy(ab);
+    ab = nullptr;
+  }
+  if (border) {
+    cairo_pattern_destroy(border);
+    border = nullptr;
+  }
+}
+
+std::optional<insert_action> parse_insert_action(std::string_view name) {
+  for (const auto& [action_name, action] : kInsertActionNames) {
+    if (action_name == name) {
+      return action;
+    }
+  }
+  return {};
+}
+
+std::optional<selection_action> parse_selection_action(std::string_view name) {
+  for (const auto& [action_name, action] : kSelectionActionNames) {
+    if (action_name == name) {
+      return action;
+    }
+  }
+  return {};
 }
 
 bool load_config(config_info& info, VteTerminal* vte, GtkWindow* window,
@@ -361,8 +537,8 @@ bool load_config(config_info& info, VteTerminal* vte, GtkWindow* window,
     loaded = g_key_file_load_from_file(
         config, (g_get_user_config_dir() + default_path).c_str(),
         G_KEY_FILE_NONE, &error);
-    if (!loaded) {
-      if (error) g_clear_error(&error);
+    if (!loaded && error) {
+      g_clear_error(&error);
     }
   }
 
@@ -371,7 +547,9 @@ bool load_config(config_info& info, VteTerminal* vte, GtkWindow* window,
          dir++) {
       loaded = g_key_file_load_from_file(config, (*dir + default_path).c_str(),
                                          G_KEY_FILE_NONE, &error);
-      if (!loaded && error) g_clear_error(&error);
+      if (!loaded && error) {
+        g_clear_error(&error);
+      }
     }
   }
 

@@ -28,12 +28,11 @@
 #include <cstring>
 #include <functional>
 #include <limits>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_set>
+#include <utility>
 #include <vector>
 
 #define PCRE2_CODE_UNIT_WIDTH 8
@@ -94,8 +93,9 @@ struct search_panel_info {
   GtkWidget* entry{gtk_entry_new()};
   GtkWidget* da{gtk_drawing_area_new()};
   overlay_mode mode{overlay_mode::hidden};
+  bool return_to_insert{false};
   std::vector<url_data> url_list{};
-  char* fulltext{nullptr};
+  std::string fulltext{};
   VteRegex* last_regex{nullptr};
   std::string last_pattern{};
 
@@ -119,10 +119,10 @@ struct draw_cb_info {
   VteTerminal* vte;
   search_panel_info* panel;
   hint_info* hints;
-  gboolean filter_unmatched_urls;
+  const gboolean* filter_unmatched_urls;
 };
 
-static void launch_browser(char* browser, char* url);
+static void launch_browser(const char* browser, const char* url);
 static void window_title_cb(VteTerminal* vte, gboolean* dynamic_title);
 static gboolean window_state_cb(GtkWindow* window, GdkEventWindowState* event,
                                 keybind_info* info);
@@ -147,7 +147,7 @@ static long first_row(VteTerminal* vte);
 
 static std::function<void()> reload_config;
 
-static const std::map<int, const char*> modify_table = {
+static constexpr std::array<std::pair<int, const char*>, 25> modify_table = {{
     {GDK_KEY_Tab, "\033[27;5;9~"},
     {GDK_KEY_Return, "\033[27;5;13~"},
     {GDK_KEY_apostrophe, "\033[27;5;39~"},
@@ -173,64 +173,71 @@ static const std::map<int, const char*> modify_table = {
     {GDK_KEY_less, "\033[27;6;60~"},
     {GDK_KEY_greater, "\033[27;6;62~"},
     {GDK_KEY_question, "\033[27;6;63~"},
-};
+}};
 
-static const std::map<int, const char*> modify_meta_table = {
-    {GDK_KEY_Tab, "\033[27;13;9~"},
-    {GDK_KEY_Return, "\033[27;13;13~"},
-    {GDK_KEY_apostrophe, "\033[27;13;39~"},
-    {GDK_KEY_comma, "\033[27;13;44~"},
-    {GDK_KEY_minus, "\033[27;13;45~"},
-    {GDK_KEY_period, "\033[27;13;46~"},
-    {GDK_KEY_0, "\033[27;13;48~"},
-    {GDK_KEY_1, "\033[27;13;49~"},
-    {GDK_KEY_9, "\033[27;13;57~"},
-    {GDK_KEY_semicolon, "\033[27;13;59~"},
-    {GDK_KEY_equal, "\033[27;13;61~"},
-    {GDK_KEY_exclam, "\033[27;14;33~"},
-    {GDK_KEY_quotedbl, "\033[27;14;34~"},
-    {GDK_KEY_numbersign, "\033[27;14;35~"},
-    {GDK_KEY_dollar, "\033[27;14;36~"},
-    {GDK_KEY_percent, "\033[27;14;37~"},
-    {GDK_KEY_ampersand, "\033[27;14;38~"},
-    {GDK_KEY_parenleft, "\033[27;14;40~"},
-    {GDK_KEY_parenright, "\033[27;14;41~"},
-    {GDK_KEY_asterisk, "\033[27;14;42~"},
-    {GDK_KEY_plus, "\033[27;14;43~"},
-    {GDK_KEY_colon, "\033[27;14;58~"},
-    {GDK_KEY_less, "\033[27;14;60~"},
-    {GDK_KEY_greater, "\033[27;14;62~"},
-    {GDK_KEY_question, "\033[27;14;63~"},
-};
+static constexpr std::array<std::pair<int, const char*>, 25> modify_meta_table =
+    {{
+        {GDK_KEY_Tab, "\033[27;13;9~"},
+        {GDK_KEY_Return, "\033[27;13;13~"},
+        {GDK_KEY_apostrophe, "\033[27;13;39~"},
+        {GDK_KEY_comma, "\033[27;13;44~"},
+        {GDK_KEY_minus, "\033[27;13;45~"},
+        {GDK_KEY_period, "\033[27;13;46~"},
+        {GDK_KEY_0, "\033[27;13;48~"},
+        {GDK_KEY_1, "\033[27;13;49~"},
+        {GDK_KEY_9, "\033[27;13;57~"},
+        {GDK_KEY_semicolon, "\033[27;13;59~"},
+        {GDK_KEY_equal, "\033[27;13;61~"},
+        {GDK_KEY_exclam, "\033[27;14;33~"},
+        {GDK_KEY_quotedbl, "\033[27;14;34~"},
+        {GDK_KEY_numbersign, "\033[27;14;35~"},
+        {GDK_KEY_dollar, "\033[27;14;36~"},
+        {GDK_KEY_percent, "\033[27;14;37~"},
+        {GDK_KEY_ampersand, "\033[27;14;38~"},
+        {GDK_KEY_parenleft, "\033[27;14;40~"},
+        {GDK_KEY_parenright, "\033[27;14;41~"},
+        {GDK_KEY_asterisk, "\033[27;14;42~"},
+        {GDK_KEY_plus, "\033[27;14;43~"},
+        {GDK_KEY_colon, "\033[27;14;58~"},
+        {GDK_KEY_less, "\033[27;14;60~"},
+        {GDK_KEY_greater, "\033[27;14;62~"},
+        {GDK_KEY_question, "\033[27;14;63~"},
+    }};
 
-static gboolean modify_key_feed(GdkEventKey* event, keybind_info* info,
-                                const std::map<int, const char*>& table) {
-  if (info->config.modify_other_keys) {
-    unsigned int keyval = gdk_keyval_to_lower(event->keyval);
-    auto entry = table.find((int)keyval);
+template <size_t N>
+static gboolean modify_key_feed(
+    GdkEventKey* event, keybind_info* info,
+    const std::array<std::pair<int, const char*>, N>& table) {
+  if (!info->config.modify_other_keys) {
+    return FALSE;
+  }
 
-    if (entry != table.end()) {
-      vte_terminal_feed_child(info->vte, entry->second, -1);
+  const int keyval = static_cast<int>(gdk_keyval_to_lower(event->keyval));
+  for (const auto& [entry_key, sequence] : table) {
+    if (entry_key == keyval) {
+      vte_terminal_feed_child(info->vte, sequence, -1);
       return TRUE;
     }
   }
   return FALSE;
 }
 
-void launch_browser(char* browser, char* url) {
-  char* browser_cmd[3] = {browser, url, nullptr};
-  GError* error = nullptr;
-
-  if (!browser) {
+void launch_browser(const char* browser, const char* url) {
+  if (!browser || *browser == '\0') {
     g_printerr("browser not set, can't open url\n");
     return;
   }
+
+  char* browser_cmd[3] = {const_cast<char*>(browser), const_cast<char*>(url),
+                          nullptr};
+  GError* error = nullptr;
 
   GPid child_pid;
   if (!g_spawn_async(nullptr, browser_cmd, nullptr, G_SPAWN_SEARCH_PATH,
                      nullptr, nullptr, &child_pid, &error)) {
     g_printerr("error launching '%s': %s\n", browser, error->message);
     g_error_free(error);
+    return;
   }
   g_spawn_close_pid(child_pid);
 }
@@ -255,7 +262,12 @@ static void find_urls(VteTerminal* vte, search_panel_info* panel_info) {
   static GRegex* regex = g_regex_new(
       url_regex, (GRegexCompileFlags)(G_REGEX_CASELESS | G_REGEX_OPTIMIZE),
       G_REGEX_MATCH_NOTEMPTY, nullptr);
+  panel_info->url_list.clear();
+
   g_autofree char* content = vte_terminal_get_text_format(vte, VTE_FORMAT_TEXT);
+  if (!content) {
+    return;
+  }
 
   const char* start_pos = content;
   const char* end_pos = strchrnul(start_pos, '\n');
@@ -268,8 +280,12 @@ static void find_urls(VteTerminal* vte, search_panel_info* panel_info) {
     assert(start_pos <= end_pos);
     assert(line_length >= 0);
 
-    if (!line_length)  // Empty line.
+    // REGEX_URL_AS_IS always contains "://"; skip lines without it.
+    const std::string_view line(start_pos, static_cast<size_t>(line_length));
+    if (line.find("://") == std::string_view::npos) {
+      if (*end_pos == '\0') break;
       continue;
+    }
 
     g_autoptr(GError) error = nullptr;
     g_autoptr(GMatchInfo) info = nullptr;
@@ -277,17 +293,20 @@ static void find_urls(VteTerminal* vte, search_panel_info* panel_info) {
                        static_cast<GRegexMatchFlags>(0), &info, &error);
 
     while (g_match_info_matches(info)) {
-      int pos;
+      int pos = 0;
       g_match_info_fetch_pos(info, 0, &pos, nullptr);
-      panel_info->url_list.emplace_back(g_match_info_fetch(info, 0), pos, row);
+      const long col =
+          utf8_byte_offset_to_column(line, static_cast<size_t>(pos));
+      panel_info->url_list.emplace_back(g_match_info_fetch(info, 0), col, row);
       g_match_info_next(info, &error);
     }
 
     if (error) g_printerr("error while matching: %s\n", error->message);
+    if (*end_pos == '\0') break;
   }
 }
 
-static void launch_url(char* browser, const char* text,
+static void launch_url(const char* browser, const char* text,
                        search_panel_info* info) {
   char* end;
   errno = 0;
@@ -299,9 +318,9 @@ static void launch_url(char* browser, const char* text,
   }
 }
 
-static void draw_rectangle(cairo_t* cr, double x, double y, double height,
-                           double width, double radius) {
-  double a = x, b = x + height, c = y, d = y + width;
+static void draw_rectangle(cairo_t* cr, double x, double y, double width,
+                           double height, double radius) {
+  double a = x, b = x + width, c = y, d = y + height;
   cairo_arc(cr, a + radius, c + radius, radius, 2 * (M_PI / 2), 3 * (M_PI / 2));
   cairo_arc(cr, b - radius, c + radius, radius, 3 * (M_PI / 2), 4 * (M_PI / 2));
   cairo_arc(cr, b - radius, d - radius, radius, 0 * (M_PI / 2), 1 * (M_PI / 2));
@@ -338,44 +357,40 @@ static void draw_marker(cairo_t* cr, PangoLayout* layout,
 }
 
 static gboolean draw_cb(const draw_cb_info* info, cairo_t* cr) {
-  if (!info->panel->url_list.empty()) {
-    char buffer[std::numeric_limits<unsigned>::digits10 + 1];
-
-    int padding_left, padding_top, padding_right, padding_bottom;
-    const long cw = vte_terminal_get_char_width(info->vte);
-    const long ch = vte_terminal_get_char_height(info->vte);
-    const PangoFontDescription* desc = info->hints->font
-                                           ? info->hints->font
-                                           : vte_terminal_get_font(info->vte);
-    size_t len =
-        info->panel->fulltext == nullptr ? 0 : strlen(info->panel->fulltext);
-
-    cairo_set_line_width(cr, 1);
-    cairo_set_source_rgb(cr, 0, 0, 0);
-    cairo_stroke(cr);
-
-    get_vte_padding(info->vte, &padding_left, &padding_top, &padding_right,
-                    &padding_bottom);
-
-    PangoLayout* layout = pango_cairo_create_layout(cr);
-    pango_layout_set_font_description(layout, desc);
-
-    for (unsigned i = 0; i < info->panel->url_list.size(); i++) {
-      const url_data& data = info->panel->url_list[i];
-      const long x = data.col * cw + padding_left;
-      const long y = data.row * ch + padding_top;
-      bool active = false;
-
-      snprintf(buffer, sizeof(buffer), "%u", i + 1);
-      if (len) active = strncmp(buffer, info->panel->fulltext, len) == 0;
-
-      if (!info->filter_unmatched_urls || active || len == 0)
-        draw_marker(cr, layout, info->hints, x, y, buffer, active);
-    }
-
-    g_object_unref(layout);
+  if (info->panel->url_list.empty()) {
+    return FALSE;
   }
 
+  char buffer[std::numeric_limits<unsigned>::digits10 + 2];
+
+  int padding_left, padding_top, padding_right, padding_bottom;
+  const long cw = vte_terminal_get_char_width(info->vte);
+  const long ch = vte_terminal_get_char_height(info->vte);
+  const PangoFontDescription* desc =
+      info->hints->font ? info->hints->font : vte_terminal_get_font(info->vte);
+  const std::string_view prefix(info->panel->fulltext);
+
+  get_vte_padding(info->vte, &padding_left, &padding_top, &padding_right,
+                  &padding_bottom);
+
+  PangoLayout* layout = pango_cairo_create_layout(cr);
+  pango_layout_set_font_description(layout, desc);
+
+  for (unsigned i = 0; i < info->panel->url_list.size(); i++) {
+    const url_data& data = info->panel->url_list[i];
+    const long x = data.col * cw + padding_left;
+    const long y = data.row * ch + padding_top;
+
+    snprintf(buffer, sizeof(buffer), "%u", i + 1);
+    const bool active =
+        !prefix.empty() && std::string_view(buffer).starts_with(prefix);
+
+    if (!*info->filter_unmatched_urls || active || prefix.empty()) {
+      draw_marker(cr, layout, info->hints, x, y, buffer, active);
+    }
+  }
+
+  g_object_unref(layout);
   return FALSE;
 }
 
@@ -540,13 +555,13 @@ static void move_to_row_start(VteTerminal* vte, select_info* select, long row) {
   update_selection(vte, select);
 }
 
-static void open_selection(char* browser, VteTerminal* vte) {
+static void open_selection(const char* browser, VteTerminal* vte) {
   if (!vte_terminal_get_has_selection(vte)) {
     g_printerr("no selection to open\n");
     return;
   }
 
-  if (browser) {
+  if (browser && *browser != '\0') {
     auto selection = make_unique_ptr(vte_terminal_get_selection(vte), g_free);
     if (selection && *selection) {
       launch_browser(browser, selection.get());
@@ -556,59 +571,29 @@ static void open_selection(char* browser, VteTerminal* vte) {
   }
 }
 
-static bool is_word_char(gunichar c) {
-  static const char* word_char_ascii_punct = "-,./?%&#_=+@~";
-  return g_unichar_isgraph(c) &&
-         (g_unichar_isalnum(c) ||
-          (g_unichar_ispunct(c) &&
-           (c >= 0x80 || strchr(word_char_ascii_punct, (int)c) != NULL)));
-}
+static bool is_non_space(gunichar c) { return !g_unichar_isspace(c); }
 
-template <typename F>
-static void move_backward(VteTerminal* vte, select_info* select, F is_word) {
+static void move_backward(VteTerminal* vte, select_info* select,
+                          char_predicate is_word) {
   long cursor_col, cursor_row;
   vte_terminal_get_cursor_position(vte, &cursor_col, &cursor_row);
 
   auto content = get_text_range(vte, cursor_row, 0, cursor_row, cursor_col);
-
   if (!content) {
     return;
   }
 
-  long length;
-  gunichar* codepoints =
-      g_utf8_to_ucs4(content.get(), -1, nullptr, &length, nullptr);
-
+  long length = 0;
+  auto codepoints = make_unique_ptr(
+      g_utf8_to_ucs4(content.get(), -1, nullptr, &length, nullptr), g_free);
   if (!codepoints) {
     return;
   }
 
-  // sanitize cursor_col, if the user moved the cursor using free movement
-  // beyond the end of the line input the matching be off for one 'word'.
-  cursor_col = length;
-
-  long count = get_count(select);
-
-  bool in_word = false;
-
-  long i = length - 1;
-  for (; i >= 0; i--) {
-    if (!is_word(codepoints[i - 1])) {
-      if (in_word) {
-        if (--count == 0) {
-          break;
-        }
-        in_word = false;
-      }
-    } else {
-      in_word = true;
-    }
-  }
-  cursor_col = std::max<long>(cursor_col - (length - i), 0);
+  cursor_col = find_backward_word_col(codepoints.get(), length,
+                                      get_count(select), is_word);
   vte_terminal_set_cursor_position(vte, cursor_col, cursor_row);
   update_selection(vte, select);
-
-  g_free(codepoints);
 }
 
 static void move_backward_word(VteTerminal* vte, select_info* select) {
@@ -616,38 +601,34 @@ static void move_backward_word(VteTerminal* vte, select_info* select) {
 }
 
 static void move_backward_blank_word(VteTerminal* vte, select_info* select) {
-  move_backward(vte, select, std::not_fn(g_unichar_isspace));
+  move_backward(vte, select, is_non_space);
 }
 
-template <typename F>
-void move_first(VteTerminal* vte, select_info* select, F is_match) {
+static void move_first(VteTerminal* vte, select_info* select,
+                       char_predicate is_match) {
   long cursor_col, cursor_row;
   vte_terminal_get_cursor_position(vte, &cursor_col, &cursor_row);
 
   const long end_col = vte_terminal_get_column_count(vte) - 1;
-
   auto content =
       get_text_range(vte, cursor_row, cursor_col, cursor_row, end_col);
-
   if (!content) {
     return;
   }
 
-  long length;
-  gunichar* codepoints =
-      g_utf8_to_ucs4(content.get(), -1, nullptr, &length, nullptr);
-
+  long length = 0;
+  auto codepoints = make_unique_ptr(
+      g_utf8_to_ucs4(content.get(), -1, nullptr, &length, nullptr), g_free);
   if (!codepoints) {
     return;
   }
 
-  auto iter = std::find_if(codepoints, codepoints + length, is_match);
-  if (iter != codepoints + length) {
-    vte_terminal_set_cursor_position(vte, iter - codepoints, cursor_row);
+  const long target_col =
+      find_first_match_col(cursor_col, codepoints.get(), length, is_match);
+  if (target_col >= 0) {
+    vte_terminal_set_cursor_position(vte, target_col, cursor_row);
     update_selection(vte, select);
   }
-
-  g_free(codepoints);
 }
 
 static void set_cursor_column(VteTerminal* vte, const select_info* select,
@@ -663,87 +644,45 @@ static void move_to_eol(VteTerminal* vte, select_info* select) {
   vte_terminal_get_cursor_position(vte, nullptr, &cursor_row);
 
   const long end_col = vte_terminal_get_column_count(vte) - 1;
-
   auto content = get_text_range(vte, cursor_row, 0, cursor_row, end_col);
-
   if (!content) {
     return;
   }
 
-  long length;
-  gunichar* codepoints =
-      g_utf8_to_ucs4(content.get(), -1, nullptr, &length, nullptr);
-
+  long length = 0;
+  auto codepoints = make_unique_ptr(
+      g_utf8_to_ucs4(content.get(), -1, nullptr, &length, nullptr), g_free);
   if (!codepoints) {
     return;
   }
 
-  auto iter = std::find(codepoints, codepoints + length, '\n');
-  set_cursor_column(vte, select, std::max(iter - codepoints - 1l, 0l));
-
-  g_free(codepoints);
+  auto iter = std::find(codepoints.get(), codepoints.get() + length, '\n');
+  set_cursor_column(vte, select, std::max(iter - codepoints.get() - 1l, 0l));
 }
 
-template <typename F>
-static void move_forward(VteTerminal* vte, select_info* select, F is_word,
-                         bool goto_word_end) {
+static void move_forward(VteTerminal* vte, select_info* select,
+                         char_predicate is_word, bool goto_word_end) {
   long cursor_col, cursor_row;
   vte_terminal_get_cursor_position(vte, &cursor_col, &cursor_row);
 
   const long end_col = vte_terminal_get_column_count(vte) - 1;
-
   auto content =
       get_text_range(vte, cursor_row, cursor_col, cursor_row, end_col);
-
   if (!content) {
     return;
   }
 
-  long length;
-  gunichar* codepoints =
-      g_utf8_to_ucs4(content.get(), -1, nullptr, &length, nullptr);
-
+  long length = 0;
+  auto codepoints = make_unique_ptr(
+      g_utf8_to_ucs4(content.get(), -1, nullptr, &length, nullptr), g_free);
   if (!codepoints) {
     return;
   }
 
-  // prevent going past the end (get_text_range adds a \n)
-  if (codepoints[length - 1] == '\n') {
-    length--;
-  }
-
-  long count = get_count(select);
-
-  bool end_of_word = false;
-
-  if (!goto_word_end) {
-    for (long i = 1; i < length; i++) {
-      if (is_word(codepoints[i - 1])) {
-        if (end_of_word) {
-          if (--count == 0) {
-            break;
-          }
-          end_of_word = false;
-        }
-      } else {
-        end_of_word = true;
-      }
-      cursor_col++;
-    }
-  } else {
-    for (long i = 2; i <= length; i++) {
-      cursor_col++;
-      if (is_word(codepoints[i - 1]) && !is_word(codepoints[i])) {
-        if (--count == 0) {
-          break;
-        }
-      }
-    }
-  }
+  cursor_col += find_forward_word_delta(
+      codepoints.get(), length, get_count(select), goto_word_end, is_word);
   vte_terminal_set_cursor_position(vte, cursor_col, cursor_row);
   update_selection(vte, select);
-
-  g_free(codepoints);
 }
 
 static void move_forward_end_word(VteTerminal* vte, select_info* select) {
@@ -751,7 +690,7 @@ static void move_forward_end_word(VteTerminal* vte, select_info* select) {
 }
 
 static void move_forward_end_blank_word(VteTerminal* vte, select_info* select) {
-  move_forward(vte, select, std::not_fn(g_unichar_isspace), true);
+  move_forward(vte, select, is_non_space, true);
 }
 
 static void move_forward_word(VteTerminal* vte, select_info* select) {
@@ -759,7 +698,7 @@ static void move_forward_word(VteTerminal* vte, select_info* select) {
 }
 
 static void move_forward_blank_word(VteTerminal* vte, select_info* select) {
-  move_forward(vte, select, std::not_fn(g_unichar_isspace), false);
+  move_forward(vte, select, is_non_space, false);
 }
 
 /* {{{ CALLBACKS */
@@ -807,12 +746,13 @@ gboolean window_state_cb(GtkWindow*, GdkEventWindowState* event,
   return FALSE;
 }
 
-static bool is_action(
-    const std::unordered_map<std::string, keybinding>& bindings,
-    const char* action, const GdkEventKey* event, bool default_match) {
-  auto it = bindings.find(action);
-  if (it != bindings.end()) {
-    return it->second == *event;
+template <typename Action, size_t N>
+static bool is_action(const std::array<std::optional<keybinding>, N>& bindings,
+                      Action action, const GdkEventKey* event,
+                      bool default_match) {
+  const auto& binding = bindings[static_cast<size_t>(action)];
+  if (binding) {
+    return *binding == *event;
   }
   return default_match;
 }
@@ -830,160 +770,169 @@ gboolean key_press_cb(VteTerminal* vte, GdkEventKey* event,
 
   if (info->select.mode != vi_mode::insert) {
     const auto& sel_keys = info->config.selection_keybindings;
-    auto is_sel = [&](const char* action, bool def) {
+    auto is_sel = [&](selection_action action, bool def) {
       return is_action(sel_keys, action, event, def);
     };
 
-    if (is_sel("exit-selection", (modifiers == GDK_CONTROL_MASK &&
-                                  lower_keyval == GDK_KEY_bracketleft) ||
-                                     (!modifiers && (keyval == GDK_KEY_Escape ||
-                                                     keyval == GDK_KEY_q)))) {
+    if (is_sel(selection_action::exit_selection,
+               (modifiers == GDK_CONTROL_MASK &&
+                lower_keyval == GDK_KEY_bracketleft) ||
+                   (!modifiers &&
+                    (keyval == GDK_KEY_Escape || keyval == GDK_KEY_q)))) {
       exit_command_mode(vte, &info->select);
       gtk_widget_hide(info->panel.da);
       gtk_widget_hide(info->panel.entry);
       info->panel.url_list.clear();
+      info->panel.fulltext.clear();
+      info->panel.return_to_insert = false;
       return TRUE;
     }
-    if (is_sel("visual-block-mode",
+    if (is_sel(selection_action::visual_block_mode,
                modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_v)) {
       toggle_visual(vte, &info->select, vi_mode::visual_block);
       return TRUE;
     }
     if (is_sel(
-            "word-backward-blank",
+            selection_action::word_backward_blank,
             (modifiers == GDK_CONTROL_MASK && keyval == GDK_KEY_Left) ||
                 ((modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_B))) {
       move_backward_blank_word(vte, &info->select);
       return TRUE;
     }
     if (is_sel(
-            "word-forward-blank",
+            selection_action::word_forward_blank,
             (modifiers == GDK_CONTROL_MASK && keyval == GDK_KEY_Right) ||
                 ((modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_W))) {
       move_forward_blank_word(vte, &info->select);
       return TRUE;
     }
-    if (is_sel("scroll-half-page-up",
+    if (is_sel(selection_action::scroll_half_page_up,
                modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_u)) {
       move(vte, &info->select, 0, -(vte_terminal_get_row_count(vte) / 2));
       return TRUE;
     }
-    if (is_sel("scroll-half-page-down",
+    if (is_sel(selection_action::scroll_half_page_down,
                modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_d)) {
       move(vte, &info->select, 0, vte_terminal_get_row_count(vte) / 2);
       return TRUE;
     }
-    if (is_sel("scroll-full-page-up",
+    if (is_sel(selection_action::scroll_full_page_up,
                (modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_b) ||
                    (!modifiers && keyval == GDK_KEY_Page_Up))) {
       move(vte, &info->select, 0, -(vte_terminal_get_row_count(vte) - 1));
       return TRUE;
     }
-    if (is_sel("scroll-full-page-down",
+    if (is_sel(selection_action::scroll_full_page_down,
                (modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_f) ||
                    (!modifiers && keyval == GDK_KEY_Page_Down))) {
       move(vte, &info->select, 0, vte_terminal_get_row_count(vte) - 1);
       return TRUE;
     }
-    if (is_sel("word-backward",
+    if (is_sel(selection_action::word_backward,
                (modifiers == GDK_SHIFT_MASK && keyval == GDK_KEY_Left) ||
                    (!modifiers && keyval == GDK_KEY_b))) {
       move_backward_word(vte, &info->select);
       return TRUE;
     }
-    if (is_sel("word-forward",
+    if (is_sel(selection_action::word_forward,
                (modifiers == GDK_SHIFT_MASK && keyval == GDK_KEY_Right) ||
                    (!modifiers && keyval == GDK_KEY_w))) {
       move_forward_word(vte, &info->select);
       return TRUE;
     }
-    if (is_sel("move-left",
+    if (is_sel(selection_action::move_left,
                !modifiers && (keyval == GDK_KEY_Left || keyval == GDK_KEY_h))) {
       move(vte, &info->select, -1, 0);
       return TRUE;
     }
-    if (is_sel("move-down",
+    if (is_sel(selection_action::move_down,
                !modifiers && (keyval == GDK_KEY_Down || keyval == GDK_KEY_j))) {
       move(vte, &info->select, 0, 1);
       return TRUE;
     }
-    if (is_sel("move-up",
+    if (is_sel(selection_action::move_up,
                !modifiers && (keyval == GDK_KEY_Up || keyval == GDK_KEY_k))) {
       move(vte, &info->select, 0, -1);
       return TRUE;
     }
-    if (is_sel("move-right", !modifiers && (keyval == GDK_KEY_Right ||
-                                            keyval == GDK_KEY_l))) {
+    if (is_sel(
+            selection_action::move_right,
+            !modifiers && (keyval == GDK_KEY_Right || keyval == GDK_KEY_l))) {
       move(vte, &info->select, 1, 0);
       return TRUE;
     }
-    if (is_sel("word-forward-end", !modifiers && keyval == GDK_KEY_e)) {
+    if (is_sel(selection_action::word_forward_end,
+               !modifiers && keyval == GDK_KEY_e)) {
       move_forward_end_word(vte, &info->select);
       return TRUE;
     }
-    if (is_sel("word-forward-end-blank",
+    if (is_sel(selection_action::word_forward_end_blank,
                (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_E)) {
       move_forward_end_blank_word(vte, &info->select);
       return TRUE;
     }
-    if (is_sel("first-row",
+    if (is_sel(selection_action::first_row,
                !modifiers && (keyval == GDK_KEY_g || keyval == GDK_KEY_Home))) {
       move_to_row_start(vte, &info->select, first_row(vte));
       return TRUE;
     }
-    if (is_sel("last-row",
+    if (is_sel(selection_action::last_row,
                ((modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_G) ||
                    (!modifiers && keyval == GDK_KEY_End))) {
       move_to_row_start(vte, &info->select, last_row(vte));
       return TRUE;
     }
-    if (is_sel("top-of-screen",
+    if (is_sel(selection_action::top_of_screen,
                (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_H)) {
       move_to_row_start(vte, &info->select, top_row(vte));
       return TRUE;
     }
-    if (is_sel("middle-of-screen",
+    if (is_sel(selection_action::middle_of_screen,
                (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_M)) {
       move_to_row_start(vte, &info->select, middle_row(vte));
       return TRUE;
     }
-    if (is_sel("bottom-of-screen",
+    if (is_sel(selection_action::bottom_of_screen,
                (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_L)) {
       move_to_row_start(vte, &info->select, bottom_row(vte));
       return TRUE;
     }
-    if (is_sel("visual-mode", !modifiers && keyval == GDK_KEY_v)) {
+    if (is_sel(selection_action::visual_mode,
+               !modifiers && keyval == GDK_KEY_v)) {
       toggle_visual(vte, &info->select, vi_mode::visual);
       return TRUE;
     }
-    if (is_sel("visual-line-mode",
+    if (is_sel(selection_action::visual_line_mode,
                (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_V)) {
       toggle_visual(vte, &info->select, vi_mode::visual_line);
       return TRUE;
     }
-    if (is_sel("copy", !modifiers && keyval == GDK_KEY_y)) {
+    if (is_sel(selection_action::copy, !modifiers && keyval == GDK_KEY_y)) {
       copy_selection(vte);
       return TRUE;
     }
-    if (is_sel("search-forward", !modifiers && keyval == GDK_KEY_slash)) {
+    if (is_sel(selection_action::search_forward,
+               !modifiers && keyval == GDK_KEY_slash)) {
       overlay_show(&info->panel, overlay_mode::search, vte,
                    info->config.completion_limit);
       return TRUE;
     }
-    if (is_sel("search-backward", (modifiers & ~GDK_SHIFT_MASK) == 0 &&
-                                      keyval == GDK_KEY_question)) {
+    if (is_sel(
+            selection_action::search_backward,
+            (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_question)) {
       overlay_show(&info->panel, overlay_mode::rsearch, vte,
                    info->config.completion_limit);
       return TRUE;
     }
-    if (is_sel("find-next", !modifiers && keyval == GDK_KEY_n)) {
+    if (is_sel(selection_action::find_next,
+               !modifiers && keyval == GDK_KEY_n)) {
       for (long i = get_count(&info->select); i > 0; i--) {
         vte_terminal_search_find_next(vte);
       }
       vte_terminal_copy_primary(vte);
       return TRUE;
     }
-    if (is_sel("find-previous",
+    if (is_sel(selection_action::find_previous,
                (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_N)) {
       for (long i = get_count(&info->select); i > 0; i--) {
         vte_terminal_search_find_previous(vte);
@@ -991,32 +940,38 @@ gboolean key_press_cb(VteTerminal* vte, GdkEventKey* event,
       vte_terminal_copy_primary(vte);
       return TRUE;
     }
-    if (is_sel("url-search-forward", !modifiers && keyval == GDK_KEY_u)) {
+    if (is_sel(selection_action::url_search_forward,
+               !modifiers && keyval == GDK_KEY_u)) {
       for (long i = get_count(&info->select); i > 0; i--) {
         search(vte, &info->panel, url_regex, false);
       }
       return TRUE;
     }
-    if (is_sel("url-search-backward",
+    if (is_sel(selection_action::url_search_backward,
                (modifiers & ~GDK_SHIFT_MASK) == 0 && keyval == GDK_KEY_U)) {
       for (long i = get_count(&info->select); i > 0; i--) {
         search(vte, &info->panel, url_regex, true);
       }
       return TRUE;
     }
-    if (is_sel("open-url", !modifiers && (keyval == GDK_KEY_o ||
-                                          keyval == GDK_KEY_Return))) {
-      open_selection(info->config.browser, vte);
+    if (is_sel(
+            selection_action::open_url,
+            !modifiers && (keyval == GDK_KEY_o || keyval == GDK_KEY_Return))) {
+      open_selection(info->config.browser.c_str(), vte);
       if (keyval == GDK_KEY_Return) {
         exit_command_mode(vte, &info->select);
       }
       return TRUE;
     }
-    if (is_sel("url-hints", !modifiers && keyval == GDK_KEY_x)) {
-      if (info->config.browser) {
+    if (is_sel(selection_action::url_hints,
+               !modifiers && keyval == GDK_KEY_x)) {
+      if (!info->config.browser.empty()) {
         find_urls(vte, &info->panel);
-        gtk_widget_show(info->panel.da);
-        overlay_show(&info->panel, overlay_mode::urlselect, nullptr);
+        if (!info->panel.url_list.empty()) {
+          info->panel.return_to_insert = false;
+          gtk_widget_show(info->panel.da);
+          overlay_show(&info->panel, overlay_mode::urlselect, nullptr);
+        }
       }
       return TRUE;
     }
@@ -1045,7 +1000,7 @@ gboolean key_press_cb(VteTerminal* vte, GdkEventKey* event,
         break;
       case GDK_KEY_asciicircum:
         set_cursor_column(vte, &info->select, 0);
-        move_first(vte, &info->select, std::not_fn(g_unichar_isspace));
+        move_first(vte, &info->select, is_non_space);
         break;
       case GDK_KEY_dollar:
         move_to_eol(vte, &info->select);
@@ -1066,99 +1021,113 @@ gboolean key_press_cb(VteTerminal* vte, GdkEventKey* event,
   }
 
   const auto& ins_keys = info->config.keybindings;
-  auto is_ins = [&](const char* action, bool def) {
+  auto is_ins = [&](insert_action action, bool def) {
     return is_action(ins_keys, action, event, def);
   };
 
-  if (is_ins("zoom-in", (modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
-                         lower_keyval == GDK_KEY_plus) ||
-                            (modifiers == GDK_CONTROL_MASK &&
-                             (lower_keyval == GDK_KEY_plus ||
-                              lower_keyval == GDK_KEY_KP_Add)))) {
+  if (is_ins(insert_action::zoom_in,
+             (modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+              lower_keyval == GDK_KEY_plus) ||
+                 (modifiers == GDK_CONTROL_MASK &&
+                  (lower_keyval == GDK_KEY_plus ||
+                   lower_keyval == GDK_KEY_KP_Add)))) {
     increase_font_scale(vte);
     return TRUE;
   }
-  if (is_ins("zoom-out", modifiers == GDK_CONTROL_MASK &&
-                             (lower_keyval == GDK_KEY_minus ||
-                              lower_keyval == GDK_KEY_KP_Subtract))) {
+  if (is_ins(insert_action::zoom_out,
+             modifiers == GDK_CONTROL_MASK &&
+                 (lower_keyval == GDK_KEY_minus ||
+                  lower_keyval == GDK_KEY_KP_Subtract))) {
     decrease_font_scale(vte);
     return TRUE;
   }
-  if (is_ins("zoom-reset", (modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
-                            lower_keyval == GDK_KEY_equal) ||
-                               (modifiers == GDK_CONTROL_MASK &&
-                                lower_keyval == GDK_KEY_0))) {
+  if (is_ins(
+          insert_action::zoom_reset,
+          (modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+           lower_keyval == GDK_KEY_equal) ||
+              (modifiers == GDK_CONTROL_MASK &&
+               (lower_keyval == GDK_KEY_equal || lower_keyval == GDK_KEY_0)))) {
     reset_font_scale(vte, info->config.font_scale);
     return TRUE;
   }
-  if (is_ins("new-window", modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
-                               lower_keyval == GDK_KEY_t)) {
+  if (is_ins(insert_action::new_window,
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 lower_keyval == GDK_KEY_t)) {
     launch_in_directory(vte);
     return TRUE;
   }
-  if (is_ins("selection-mode",
+  if (is_ins(insert_action::selection_mode,
              modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
                  (lower_keyval == GDK_KEY_space ||
                   lower_keyval == GDK_KEY_nobreakspace))) {
     enter_command_mode(vte, &info->select);
     return TRUE;
   }
-  if (is_ins("url-hints", modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
-                              lower_keyval == GDK_KEY_x)) {
-    enter_command_mode(vte, &info->select);
-    find_urls(vte, &info->panel);
-    gtk_widget_show(info->panel.da);
-    overlay_show(&info->panel, overlay_mode::urlselect, nullptr);
-    exit_command_mode(vte, &info->select);
+  if (is_ins(insert_action::url_hints,
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 lower_keyval == GDK_KEY_x)) {
+    if (!info->config.browser.empty()) {
+      enter_command_mode(vte, &info->select);
+      find_urls(vte, &info->panel);
+      if (info->panel.url_list.empty()) {
+        exit_command_mode(vte, &info->select);
+      } else {
+        info->panel.return_to_insert = true;
+        gtk_widget_show(info->panel.da);
+        overlay_show(&info->panel, overlay_mode::urlselect, nullptr);
+      }
+    }
     return TRUE;
   }
-  if (is_ins("copy", modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
-                         lower_keyval == GDK_KEY_c)) {
+  if (is_ins(insert_action::copy,
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 lower_keyval == GDK_KEY_c)) {
     copy_selection(vte);
     return TRUE;
   }
-  if (is_ins("paste", modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
-                          lower_keyval == GDK_KEY_v)) {
+  if (is_ins(insert_action::paste,
+             modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
+                 lower_keyval == GDK_KEY_v)) {
     vte_terminal_paste_clipboard(vte);
     return TRUE;
   }
-  if (is_ins("reload-config",
+  if (is_ins(insert_action::reload_config,
              modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
                  lower_keyval == GDK_KEY_r)) {
     reload_config();
     return TRUE;
   }
-  if (is_ins("reset-and-clear",
+  if (is_ins(insert_action::reset_and_clear,
              modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
                  lower_keyval == GDK_KEY_l)) {
     vte_terminal_reset(vte, TRUE, TRUE);
     return TRUE;
   }
-  if (is_ins("completion",
+  if (is_ins(insert_action::completion,
              modifiers == GDK_CONTROL_MASK && lower_keyval == GDK_KEY_Tab)) {
     overlay_show(&info->panel, overlay_mode::completion, vte,
                  info->config.completion_limit);
     return TRUE;
   }
-  if (is_ins("scroll-line-up",
+  if (is_ins(insert_action::scroll_line_up,
              modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
                  (keyval == GDK_KEY_Up || keyval == GDK_KEY_KP_Up))) {
     scroll_lines(vte, -1);
     return TRUE;
   }
-  if (is_ins("scroll-line-down",
+  if (is_ins(insert_action::scroll_line_down,
              modifiers == (GDK_CONTROL_MASK | GDK_SHIFT_MASK) &&
                  (keyval == GDK_KEY_Down || keyval == GDK_KEY_KP_Down))) {
     scroll_lines(vte, 1);
     return TRUE;
   }
-  if (is_ins("scroll-page-up",
+  if (is_ins(insert_action::scroll_page_up,
              modifiers == GDK_SHIFT_MASK &&
                  (keyval == GDK_KEY_Page_Up || keyval == GDK_KEY_KP_Page_Up))) {
     scroll_lines(vte, -static_cast<double>(vte_terminal_get_row_count(vte)));
     return TRUE;
   }
-  if (is_ins("scroll-page-down",
+  if (is_ins(insert_action::scroll_page_down,
              modifiers == GDK_SHIFT_MASK && (keyval == GDK_KEY_Page_Down ||
                                              keyval == GDK_KEY_KP_Page_Down))) {
     scroll_lines(vte, static_cast<double>(vte_terminal_get_row_count(vte)));
@@ -1223,10 +1192,9 @@ gboolean entry_key_press_cb(GtkEntry* entry, GdkEventKey* event,
   }
   switch (event->keyval) {
     case GDK_KEY_BackSpace:
-      if (info->panel.mode == overlay_mode::urlselect && info->panel.fulltext) {
-        size_t slen = strlen(info->panel.fulltext);
-        if (info->panel.fulltext != nullptr && slen > 0)
-          info->panel.fulltext[slen - 1] = '\0';
+      if (info->panel.mode == overlay_mode::urlselect &&
+          !info->panel.fulltext.empty()) {
+        info->panel.fulltext.pop_back();
         gtk_widget_queue_draw(info->panel.da);
       }
       break;
@@ -1241,21 +1209,13 @@ gboolean entry_key_press_cb(GtkEntry* entry, GdkEventKey* event,
     case GDK_KEY_8:
     case GDK_KEY_9:
       if (info->panel.mode == overlay_mode::urlselect) {
-        const char* const text = gtk_entry_get_text(entry);
-        size_t len = strlen(text);
-        free(info->panel.fulltext);
-        info->panel.fulltext = g_strndup(text, len + 1);
-        info->panel.fulltext[len] = (char)event->keyval;
-        size_t urld = static_cast<size_t>(info->panel.url_list.size());
-        size_t textd = strtoul(info->panel.fulltext, nullptr, 10);
-        size_t url_dig = static_cast<size_t>(
-            log10(static_cast<double>(info->panel.url_list.size())) + 1);
-        size_t text_dig =
-            static_cast<size_t>(log10(static_cast<double>(textd)) + 1);
+        info->panel.fulltext.assign(gtk_entry_get_text(entry));
+        info->panel.fulltext.push_back(static_cast<char>(event->keyval));
 
-        if (url_dig == text_dig ||
-            textd > static_cast<size_t>(static_cast<double>(urld) / 10)) {
-          launch_url(info->config.browser, info->panel.fulltext, &info->panel);
+        if (should_launch_url_hint(info->panel.url_list.size(),
+                                   info->panel.fulltext.c_str())) {
+          launch_url(info->config.browser.c_str(), info->panel.fulltext.c_str(),
+                     &info->panel);
           ret = TRUE;
         } else {
           gtk_widget_queue_draw(info->panel.da);
@@ -1289,7 +1249,7 @@ gboolean entry_key_press_cb(GtkEntry* entry, GdkEventKey* event,
           vte_terminal_feed_child(info->vte, text, -1);
           break;
         case overlay_mode::urlselect:
-          launch_url(info->config.browser, text, &info->panel);
+          launch_url(info->config.browser.c_str(), text, &info->panel);
           break;
         case overlay_mode::hidden:
           break;
@@ -1302,8 +1262,11 @@ gboolean entry_key_press_cb(GtkEntry* entry, GdkEventKey* event,
     if (info->panel.mode == overlay_mode::urlselect) {
       gtk_widget_hide(info->panel.da);
       info->panel.url_list.clear();
-      free(info->panel.fulltext);
-      info->panel.fulltext = nullptr;
+      info->panel.fulltext.clear();
+      if (info->panel.return_to_insert) {
+        exit_command_mode(info->vte, &info->select);
+        info->panel.return_to_insert = false;
+      }
     }
     info->panel.mode = overlay_mode::hidden;
     gtk_widget_hide(info->panel.entry);
@@ -1346,7 +1309,7 @@ gboolean button_press_cb(VteTerminal* vte, GdkEventButton* event,
     if (!match) return FALSE;
 
     if (event->button == 1) {
-      launch_browser(info->browser, match.get());
+      launch_browser(info->browser.c_str(), match.get());
     } else if (event->button == 3) {
       GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
       gtk_clipboard_set_text(clipboard, match.get(), -1);
@@ -1381,30 +1344,10 @@ GtkTreeModel* create_completion_model(VteTerminal* vte, int completion_limit) {
     return GTK_TREE_MODEL(store);
   }
 
-  std::unordered_set<std::string_view> tokens;
-  std::string_view sv(content.get());
-
-  size_t start = 0;
-  while (start < sv.size()) {
-    size_t end = sv.find_first_of(" \n\t", start);
-    if (end == std::string_view::npos) {
-      end = sv.size();
-    }
-
-    if (end > start) {
-      tokens.insert(sv.substr(start, end - start));
-    }
-    start = end + 1;
-  }
-
-  std::vector<std::string_view> sorted_tokens(tokens.begin(), tokens.end());
-  std::sort(sorted_tokens.begin(), sorted_tokens.end());
-
-  for (const auto& token : sorted_tokens) {
+  for (const char* token : extract_completion_tokens(content.get())) {
     GtkTreeIter iter;
     gtk_list_store_append(store, &iter);
-    std::string s(token);
-    gtk_list_store_set(store, &iter, 0, s.c_str(), -1);
+    gtk_list_store_set(store, &iter, 0, token, -1);
   }
 
   return GTK_TREE_MODEL(store);
@@ -1429,9 +1372,10 @@ void search(VteTerminal* vte, search_panel_info* panel, const char* pattern,
       vte_regex_jit(panel->last_regex, PCRE2_JIT_PARTIAL_SOFT, nullptr);
     }
     panel->last_pattern = pattern;
+    vte_terminal_search_set_regex(vte, panel->last_regex, 0);
+  } else if (vte_terminal_search_get_regex(vte) != panel->last_regex) {
+    vte_terminal_search_set_regex(vte, panel->last_regex, 0);
   }
-
-  vte_terminal_search_set_regex(vte, panel->last_regex, 0);
 
   if (!terminal_search(vte)) {
     vte_terminal_unselect_all(vte);
@@ -1510,15 +1454,16 @@ static void spawn_callback(VteTerminal* terminal, GPid pid, GError* error,
 static void drag_data_received_cb(GtkWidget*, GdkDragContext*, int, int,
                                   GtkSelectionData* data, unsigned, unsigned,
                                   VteTerminal* vte) {
-  std::string selection{
-      reinterpret_cast<const char*>(gtk_selection_data_get_text(data))};
-  std::string needle{"file://"};
-  if (selection.compare(0, needle.length(), needle) == 0) {
-    selection.erase(0, needle.length());
+  auto raw = make_unique_ptr(gtk_selection_data_get_text(data), g_free);
+  if (!raw) {
+    return;
   }
-  selection.erase(std::remove(selection.begin(), selection.end(), '\n'),
-                  selection.end());
-  vte_terminal_feed_child(vte, selection.c_str(), -1);
+  const std::string selection =
+      normalize_dropped_text(reinterpret_cast<const char*>(raw.get()));
+  if (!selection.empty()) {
+    vte_terminal_feed_child(vte, selection.c_str(),
+                            static_cast<gssize>(selection.size()));
+  }
 }
 
 int main(int argc, char** argv) {
@@ -1545,7 +1490,7 @@ int main(int argc, char** argv) {
       {"icon", 'i', 0, G_OPTION_ARG_STRING, &icon, "Icon", "ICON"},
       {nullptr, 0, 0, G_OPTION_ARG_NONE, nullptr, nullptr, nullptr}};
   g_option_context_add_main_entries(context, entries, nullptr);
-  g_option_context_add_group(context, gtk_get_option_group(TRUE));
+  g_option_context_add_group(context, gtk_get_option_group(FALSE));
 
   if (!g_option_context_parse(context, &argc, &argv, &error)) {
     g_printerr("option parsing failed: %s\n", error->message);
@@ -1560,6 +1505,11 @@ int main(int argc, char** argv) {
     g_print("vte %u.%u.%u %s\n", VTE_MAJOR_VERSION, VTE_MINOR_VERSION,
             VTE_MICRO_VERSION, vte_get_features());
     return EXIT_SUCCESS;
+  }
+
+  if (!gtk_init_check(&argc, &argv)) {
+    g_printerr("failed to open display\n");
+    return EXIT_FAILURE;
   }
 
   if (directory) {
@@ -1673,7 +1623,7 @@ int main(int argc, char** argv) {
   g_signal_connect(vte, "bell", G_CALLBACK(bell_cb),
                    &info.config.urgent_on_bell);
   draw_cb_info draw_cb_info{vte, &info.panel, &info.config.hints,
-                            info.config.filter_unmatched_urls};
+                            &info.config.filter_unmatched_urls};
   g_signal_connect_swapped(info.panel.da, "draw", G_CALLBACK(draw_cb),
                            &draw_cb_info);
 
@@ -1710,10 +1660,8 @@ int main(int argc, char** argv) {
       }),
       &info);
 
-  if (info.config.fullscreen) {
-    g_signal_connect(window, "window-state-event", G_CALLBACK(window_state_cb),
-                     &info);
-  }
+  g_signal_connect(window, "window-state-event", G_CALLBACK(window_state_cb),
+                   &info);
 
   if (title) {
     info.config.dynamic_title = FALSE;
@@ -1751,7 +1699,7 @@ int main(int argc, char** argv) {
       g_printerr("no window\n");
       return EXIT_FAILURE;
     }
-    char xid_s[std::numeric_limits<long unsigned>::digits10 + 1];
+    char xid_s[std::numeric_limits<long unsigned>::digits10 + 2];
     snprintf(xid_s, sizeof(xid_s), "%lu", GDK_WINDOW_XID(gdk_window));
     env = g_environ_setenv(env, "WINDOWID", xid_s, TRUE);
   }
